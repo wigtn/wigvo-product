@@ -119,6 +119,22 @@ class EchoGateManager:
             self._pre_activate_watchdog(timeout_s)
         )
 
+    def begin_settling(self, duration_s: float) -> None:
+        """echo window 없이 settling 구간만 시동한다 (인바운드 handoff 직후용).
+
+        고지(notice)/hold 오디오는 PendingMediaHandler가 재생해 echo gate가 그
+        재생을 모른다 — handoff 직후 라인에 남은 에코 잔향이 VAD에 그대로 들어가
+        할루시네이션을 만든다. settling만 열면 저에너지 에코는 should_process_vad의
+        RMS pre-gate(echo_settling_rms_threshold)에서 걸러지고, 실제 발화는 통과한다.
+        """
+        now = time.time()
+        self._settling_broken = False
+        self._settling_until = now + duration_s
+        self._settling_started_at = now
+        if self._local_vad is not None:
+            self._local_vad.reset_state()
+        logger.info("Settling started without echo window (%.1fs)", duration_s)
+
     async def break_settling(self) -> None:
         """Settling 돌파: 에코 오염 버퍼 폐기 + 100ms grace period.
 

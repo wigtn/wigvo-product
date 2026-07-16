@@ -251,27 +251,58 @@ async def test_stream_start_plays_notice_before_hold_chime():
 async def test_handoff_reuses_same_stream_and_switches_on_frame_boundary():
     ws = FakeWebSocket()
     handler = PendingMediaHandler(ws, make_pending())
-    audio = b"\xff" * 160
-    media = json.dumps(
-        {
-            "event": "media",
-            "streamSid": "MZ-inbound",
-            "media": {"payload": base64.b64encode(audio).decode()},
-        }
-    )
+    buffered_audio = b"\xfe" * 160
+    live_audio = b"\xff" * 160
+
+    def media_msg(audio: bytes) -> str:
+        return json.dumps(
+            {
+                "event": "media",
+                "streamSid": "MZ-inbound",
+                "media": {"payload": base64.b64encode(audio).decode()},
+            }
+        )
+
     router = MagicMock()
     router.start = AsyncMock()
     router.handle_twilio_audio = AsyncMock()
 
-    await handler.handle_message(media)
+    # 대기 중 프레임은 즉시 전달되지 않고 pre-buffer에 쌓인다
+    await handler.handle_message(media_msg(buffered_audio))
     router.handle_twilio_audio.assert_not_awaited()
+
+    # handoff: settling 시동 + pre-buffer 재생(발화 onset 복원) 후 스왑
     await handler.handoff(router)
-    await handler.handle_message(media)
+    await handler.handle_message(media_msg(live_audio))
 
     router.start.assert_awaited_once()
-    router.handle_twilio_audio.assert_awaited_once_with(audio)
+    router.echo_gate.begin_settling.assert_called_once()
+    sent = [c.args[0] for c in router.handle_twilio_audio.await_args_list]
+    assert sent == [buffered_audio, live_audio]  # 버퍼 먼저, 라이브 다음 (순서 보존)
+    assert len(handler._prebuffer) == 0  # 재생 후 버퍼 비움
     assert handler.handed_off is True
     assert ws.close_calls == []
+    await handler.close()
+
+
+@pytest.mark.asyncio
+async def test_waiting_prebuffer_is_bounded_to_recent_frames():
+    """pre-buffer는 최근 1.5s(75프레임)만 유지한다 — 오래된 대기 오디오 재생 방지."""
+    ws = FakeWebSocket()
+    handler = PendingMediaHandler(ws, make_pending())
+    for i in range(80):
+        audio = bytes([i]) * 160
+        await handler.handle_message(
+            json.dumps(
+                {
+                    "event": "media",
+                    "streamSid": "MZ-inbound",
+                    "media": {"payload": base64.b64encode(audio).decode()},
+                }
+            )
+        )
+    assert len(handler._prebuffer) == 75
+    assert handler._prebuffer[0] == bytes([5]) * 160  # 앞 5개는 밀려남
     await handler.close()
 
 

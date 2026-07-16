@@ -225,6 +225,10 @@ class Settings(BaseSettings):
     local_vad_min_speech_frames: int = 5    # 5 × 32ms = 160ms (96ms는 노이즈 버스트 오감지, 160ms로 발화 onset 안정 확보)
     local_vad_min_silence_frames: int = 25  # 25 × 32ms = 800ms (인트라-문장 쉼 200-500ms 무시, 진짜 발화 종료 1-3s만 감지)
 
+    # 인바운드 handoff 직후 settling 시간 — 고지/hold 오디오의 에코 잔향이 VAD에
+    # 들어가 할루시네이션을 만드는 것을 억제 (실발화는 RMS breakthrough로 통과). 0=끔.
+    inbound_handoff_settling_s: float = 1.5
+
     # Session A(웹/기관 응대) 커밋 에너지 게이트 — ClientVAD가 흘린 무음/소음 커밋을 서버에서 차단.
     # 커밋 세그먼트의 peak RMS(pcm16)가 이 값 미만이면 OpenAI 커밋 스킵 + 버퍼 clear → Whisper 무음 할루시 방지.
     # 로그 근거: 무음/소음 14~126, 실발화 385~2587. 0으로 두면 비활성.

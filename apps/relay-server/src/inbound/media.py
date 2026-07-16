@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+from collections import deque
 from dataclasses import dataclass
 from functools import lru_cache
 import logging
@@ -122,6 +123,12 @@ class PendingMediaHandler:
         self._hold_task: asyncio.Task[None] | None = None
         self._waiting = False
         self._closed = False
+        # 대기 중 발신자 오디오 pre-buffer (~1.5s): 발신자는 고지가 끝나자마자
+        # (= pickup~handoff 타이밍) 말을 시작하는 경우가 많다. 대기 중 프레임을
+        # 전부 버리면 handoff 완료 시점엔 발화 '중간'부터 VAD/STT에 들어가
+        # onset이 깨지고 오인식된다. 마지막 N프레임을 handoff 때 먼저 흘려보내
+        # 진행 중이던 발화의 앞부분을 복원한다.
+        self._prebuffer: deque[bytes] = deque(maxlen=75)  # 75 × 20ms = 1.5s
 
     @property
     def handed_off(self) -> bool:
@@ -184,6 +191,9 @@ class PendingMediaHandler:
             async with self._frame_lock:
                 if self._router is not None:
                     await self._router.handle_twilio_audio(audio)
+                else:
+                    # 대기 중: handoff 때 재생할 최근 프레임 유지 (발화 onset 복원용)
+                    self._prebuffer.append(audio)
 
     async def handoff(self, router: AudioRouter) -> None:
         """Stop hold audio, start AudioRouter, then swap at a frame boundary."""
@@ -196,6 +206,17 @@ class PendingMediaHandler:
                 raise RuntimeError("Inbound media already handed off")
             await self._stop_hold()
             await router.start()
+            # 고지/hold 에코 잔향 억제: echo gate가 모르는 재생(PendingMediaHandler)
+            # 직후라 settling만 시동 — 저에너지 에코는 걸러지고 실발화는 통과.
+            if settings.inbound_handoff_settling_s > 0:
+                echo_gate = getattr(router, "echo_gate", None)
+                if echo_gate is not None:
+                    echo_gate.begin_settling(settings.inbound_handoff_settling_s)
+            # 대기 중 pre-buffer 재생: 진행 중이던 발화의 앞부분을 VAD/STT에 복원.
+            # settling이 켜진 뒤라 버퍼 속 hold 에코(저에너지)는 RMS pre-gate에서 걸러진다.
+            for frame in self._prebuffer:
+                await router.handle_twilio_audio(frame)
+            self._prebuffer.clear()
             self._router = router
 
     async def run(self) -> None:

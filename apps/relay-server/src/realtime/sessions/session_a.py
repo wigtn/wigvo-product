@@ -452,6 +452,13 @@ class SessionAHandler:
             logger.warning("[SessionA] Caller STT hallucination filtered: %s", transcript[:80])
             if self._call:
                 self._call.call_metrics.hallucinations_blocked += 1
+                from src.observability import tracer
+
+                tracer.record_event(
+                    self._call,
+                    name="🚫 Caller STT hallucination filtered",
+                    metadata={"session": "A", "text": transcript[:120]},
+                )
             return
         self._last_user_stt = transcript  # 번역 품질 평가용 원문 저장
         logger.info("[SessionA] User STT: %s", transcript[:80])

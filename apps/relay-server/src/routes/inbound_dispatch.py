@@ -11,6 +11,7 @@ from src.auth import (
 from src.config import settings
 from src.inbound.models import InboundCallListResponse, PickupResponse
 from src.inbound.service import DispatchError, dispatch_service
+from src.observability import tracer
 
 router = APIRouter(prefix="/inbound", tags=["inbound-dispatch"])
 logger = logging.getLogger(__name__)
@@ -44,11 +45,15 @@ async def pickup_inbound_call(call_id: UUID, request: Request) -> PickupResponse
     if not settings.pickup_token_secret:
         raise HTTPException(status_code=503, detail="Pickup token signing is not configured")
     try:
-        dispatch, bootstrap = await dispatch_service.pickup(
-            call_id=call_id,
-            tenant_id=tenant_id,
-            user_id=user_id,
-        )
+        # 인바운드 픽업 제어흐름 스팬 (claim→SESSION_STARTING→bootstrap→CONNECTED)
+        with tracer.flow_span(
+            "inbound.pickup", call_id=str(call_id), tenant_id=str(tenant_id)
+        ):
+            dispatch, bootstrap = await dispatch_service.pickup(
+                call_id=call_id,
+                tenant_id=tenant_id,
+                user_id=user_id,
+            )
     except DispatchError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
 

@@ -17,6 +17,7 @@ from fastapi import WebSocket, WebSocketDisconnect
 from src.call_manager import call_manager
 from src.capacity_manager import capacity_manager
 from src.config import settings
+from src.observability import tracer
 from src.inbound.bootstrap import (
     BootstrapResult,
     BootstrapUnavailable,
@@ -106,6 +107,7 @@ class PendingMediaHandler:
             source_language=_INBOUND_SOURCE_LANG,
             target_language=_INBOUND_TARGET_LANG,
             status=CallStatus.PENDING,
+            inbound=True,
             communication_mode=CommunicationMode.VOICE_TO_VOICE,
             started_at=time.time(),
         )
@@ -214,10 +216,19 @@ class PendingMediaHandler:
                     echo_gate.begin_settling(settings.inbound_handoff_settling_s)
             # 대기 중 pre-buffer 재생: 진행 중이던 발화의 앞부분을 VAD/STT에 복원.
             # settling이 켜진 뒤라 버퍼 속 hold 에코(저에너지)는 RMS pre-gate에서 걸러진다.
+            replayed = len(self._prebuffer)
             for frame in self._prebuffer:
                 await router.handle_twilio_audio(frame)
             self._prebuffer.clear()
             self._router = router
+        tracer.record_event(
+            self.call,
+            name="📥 Inbound handoff",
+            metadata={
+                "settling_s": settings.inbound_handoff_settling_s,
+                "prebuffer_frames_replayed": replayed,
+            },
+        )
 
     async def run(self) -> None:
         reason = "twilio_disconnected"
@@ -339,7 +350,10 @@ async def bootstrap_inbound_media(call_id: str, tenant_id: UUID) -> BootstrapRes
             vad_mode=VadMode.CLIENT,
             communication_mode=call.communication_mode,
         )
-        await dual_session.connect(call.prompt_a, call.prompt_b)
+        with tracer.flow_span(
+            "inbound.dual_session.connect", call_id=call_id, tenant_id=str(tenant_id)
+        ):
+            await dual_session.connect(call.prompt_a, call.prompt_b)
         call.session_a_id = dual_session.session_a.session_id
         call.session_b_id = dual_session.session_b.session_id
         call_manager.register_session(call_id, dual_session)

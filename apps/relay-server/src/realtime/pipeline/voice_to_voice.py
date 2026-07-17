@@ -20,6 +20,7 @@ from collections import deque
 from typing import Any, Callable, Coroutine, Literal
 
 from src.config import settings
+from src.observability import tracer
 from src.guardrail.checker import GuardrailChecker
 from src.realtime.audio_utils import pcm16_rms as _pcm16_rms, ulaw_rms as _ulaw_rms
 from src.realtime.context_manager import ConversationContextManager
@@ -348,6 +349,11 @@ class VoiceToVoicePipeline(BasePipeline):
         min_peak = settings.session_a_commit_min_peak_rms
         if min_peak > 0 and peak < min_peak:
             logger.info("[SessionA] Commit skipped — low energy (peak_rms=%.0f < %.0f)", peak, min_peak)
+            tracer.record_event(
+                self.call,
+                name="⚡ SessionA commit skipped (low energy)",
+                metadata={"peak_rms": round(peak), "min_peak_rms": round(min_peak)},
+            )
             await self.session_a.clear_user_audio()
             return
         # 선제적 Echo Gate 활성화: commit → TTS 생성(1-2s) 사이 에코 누출 방지
@@ -691,6 +697,7 @@ class VoiceToVoicePipeline(BasePipeline):
 
     async def _on_guardrail_event(self, event_data: dict) -> None:
         self.call.guardrail_events_log.append(event_data)
+        tracer.record_event(self.call, name="🛡 Guardrail triggered", metadata=event_data)
         await self._app_ws_send(
             WsMessage(
                 type=WsMessageType.GUARDRAIL_TRIGGERED,

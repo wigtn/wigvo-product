@@ -1,12 +1,55 @@
 /**
  * Web Audio API microphone recorder.
  * Captures PCM16 audio chunks via AudioWorklet (ScriptProcessorNode fallback).
+ * Far-field chain: high-pass filter + Speex denoiser (WASM AudioWorklet) + AGC,
+ * on top of the browser's built-in noiseSuppression/echoCancellation.
  * Output: base64-encoded PCM16 chunks (1600 samples = 100ms @ 16kHz).
  */
 
+import type { SpeexWorkletNode } from '@sapphi-red/web-noise-suppressor';
 import { arrayBufferToBase64, float32ToPcm16, SAMPLE_RATE } from './pcm16-utils';
 
 const CHUNK_SIZE = 1600; // 100ms @ 16kHz
+
+// Speex denoiser assets copied from @sapphi-red/web-noise-suppressor dist
+// into public/ (AudioWorklet modules and wasm must be fetched by URL).
+const SPEEX_WORKLET_URL = '/noise-suppressor/speexWorklet.js';
+const SPEEX_WASM_URL = '/noise-suppressor/speex.wasm';
+
+// High-pass cutoff: removes low-frequency rumble/hum below the voice band.
+const HIGHPASS_FREQUENCY_HZ = 100;
+
+// Far-field AGC: lift quiet (distant) speech toward a target level so the
+// ClientVAD thresholds and the relay's commit energy gate still see it.
+// Denoise-first ordering matters — AGC alone would amplify noise as well.
+// Harness-tuned: chunk-level EMA tracking, gain clamped to [1, 8].
+const AGC_TARGET_RMS = 0.05;
+const AGC_MAX_GAIN = 8;
+const AGC_LEVEL_EMA = 0.9; // previous-level weight per 100ms chunk
+
+interface SpeexAssets {
+  SpeexWorkletNode: typeof SpeexWorkletNode;
+  wasmBinary: ArrayBuffer;
+}
+
+// Loaded once per page; recorder instances are recreated per call.
+// The package is imported dynamically because it touches browser-only
+// globals (AudioWorkletNode) at module scope, which breaks SSR.
+let speexAssetsPromise: Promise<SpeexAssets> | null = null;
+
+function loadSpeexAssets(): Promise<SpeexAssets> {
+  if (!speexAssetsPromise) {
+    speexAssetsPromise = (async () => {
+      const mod = await import('@sapphi-red/web-noise-suppressor');
+      const wasmBinary = await mod.loadSpeex({ url: SPEEX_WASM_URL });
+      return { SpeexWorkletNode: mod.SpeexWorkletNode, wasmBinary };
+    })().catch((err) => {
+      speexAssetsPromise = null;
+      throw err;
+    });
+  }
+  return speexAssetsPromise;
+}
 
 export type ChunkCallback = (base64Audio: string, float32Samples: Float32Array) => void;
 
@@ -58,6 +101,8 @@ export class WebAudioRecorder {
   private audioContext: AudioContext | null = null;
   private mediaStream: MediaStream | null = null;
   private sourceNode: MediaStreamAudioSourceNode | null = null;
+  private highpassNode: BiquadFilterNode | null = null;
+  private speexNode: SpeexWorkletNode | null = null;
   private workletNode: AudioWorkletNode | null = null;
   private scriptProcessorNode: ScriptProcessorNode | null = null;
   private isActive = false;
@@ -66,6 +111,9 @@ export class WebAudioRecorder {
   // ScriptProcessorNode fallback buffer
   private spnBuffer: Float32Array = new Float32Array(CHUNK_SIZE);
   private spnWriteIndex = 0;
+
+  // Far-field AGC state (chunk-level EMA of input level)
+  private agcLevel = AGC_TARGET_RMS;
 
   /** Register a callback for audio chunks. */
   onChunk(callback: ChunkCallback): void {
@@ -97,10 +145,32 @@ export class WebAudioRecorder {
 
     this.sourceNode = this.audioContext.createMediaStreamSource(this.mediaStream);
 
+    // Far-field front-end: high-pass → Speex denoiser (best effort).
+    // Speex load failure degrades to high-pass only — never blocks the call.
+    this.highpassNode = this.audioContext.createBiquadFilter();
+    this.highpassNode.type = 'highpass';
+    this.highpassNode.frequency.value = HIGHPASS_FREQUENCY_HZ;
+    this.sourceNode.connect(this.highpassNode);
+
+    let captureInput: AudioNode = this.highpassNode;
+    try {
+      const speex = await loadSpeexAssets();
+      this.speexNode = new speex.SpeexWorkletNode(this.audioContext, {
+        wasmBinary: speex.wasmBinary,
+        maxChannels: 1,
+      });
+      this.highpassNode.connect(this.speexNode);
+      captureInput = this.speexNode;
+    } catch {
+      // Denoiser unavailable (asset/load failure) — proceed with high-pass only.
+    }
+
+    this.agcLevel = AGC_TARGET_RMS;
+
     // Try AudioWorklet first, fall back to ScriptProcessorNode
-    const workletAvailable = await this.trySetupWorklet();
+    const workletAvailable = await this.trySetupWorklet(captureInput);
     if (!workletAvailable) {
-      this.setupScriptProcessor();
+      this.setupScriptProcessor(captureInput);
     }
 
     this.isActive = true;
@@ -119,6 +189,17 @@ export class WebAudioRecorder {
     if (this.scriptProcessorNode) {
       this.scriptProcessorNode.disconnect();
       this.scriptProcessorNode = null;
+    }
+
+    if (this.speexNode) {
+      this.speexNode.disconnect();
+      this.speexNode.destroy();
+      this.speexNode = null;
+    }
+
+    if (this.highpassNode) {
+      this.highpassNode.disconnect();
+      this.highpassNode = null;
     }
 
     if (this.sourceNode) {
@@ -144,8 +225,8 @@ export class WebAudioRecorder {
     return this.isActive;
   }
 
-  private async trySetupWorklet(): Promise<boolean> {
-    if (!this.audioContext || !this.sourceNode) return false;
+  private async trySetupWorklet(captureInput: AudioNode): Promise<boolean> {
+    if (!this.audioContext) return false;
 
     try {
       const blob = new Blob([WORKLET_PROCESSOR_CODE], { type: 'application/javascript' });
@@ -160,7 +241,7 @@ export class WebAudioRecorder {
         this.emitChunk(samples);
       };
 
-      this.sourceNode.connect(this.workletNode);
+      captureInput.connect(this.workletNode);
       this.workletNode.connect(this.audioContext.destination);
 
       return true;
@@ -169,8 +250,8 @@ export class WebAudioRecorder {
     }
   }
 
-  private setupScriptProcessor(): void {
-    if (!this.audioContext || !this.sourceNode) return;
+  private setupScriptProcessor(captureInput: AudioNode): void {
+    if (!this.audioContext) return;
 
     // Buffer size 4096 is widely supported
     this.scriptProcessorNode = this.audioContext.createScriptProcessor(4096, 1, 1);
@@ -203,14 +284,36 @@ export class WebAudioRecorder {
       outputData.fill(0);
     };
 
-    this.sourceNode.connect(this.scriptProcessorNode);
+    captureInput.connect(this.scriptProcessorNode);
     this.scriptProcessorNode.connect(this.audioContext.destination);
+  }
+
+  /**
+   * Far-field AGC (chunk-level): track the input level with an EMA and lift
+   * quiet chunks toward AGC_TARGET_RMS, gain clamped to [1, AGC_MAX_GAIN].
+   * Runs after the denoiser (graph order), so noise is not re-amplified.
+   */
+  private applyAgc(samples: Float32Array): Float32Array {
+    let sum = 0;
+    for (let i = 0; i < samples.length; i++) sum += samples[i] * samples[i];
+    const rms = Math.sqrt(sum / samples.length) + 1e-9;
+    this.agcLevel =
+      AGC_LEVEL_EMA * this.agcLevel + (1 - AGC_LEVEL_EMA) * Math.max(rms, 1e-4);
+    const gain = Math.min(AGC_MAX_GAIN, Math.max(1, AGC_TARGET_RMS / this.agcLevel));
+    if (gain <= 1.001) return samples;
+    const out = new Float32Array(samples.length);
+    for (let i = 0; i < samples.length; i++) {
+      const v = samples[i] * gain;
+      out[i] = v > 1 ? 1 : v < -1 ? -1 : v;
+    }
+    return out;
   }
 
   private emitChunk(float32Samples: Float32Array): void {
     if (!this.onChunkCallback) return;
-    const pcm16Buffer = float32ToPcm16(float32Samples);
+    const processed = this.applyAgc(float32Samples);
+    const pcm16Buffer = float32ToPcm16(processed);
     const base64 = arrayBufferToBase64(pcm16Buffer);
-    this.onChunkCallback(base64, float32Samples);
+    this.onChunkCallback(base64, processed);
   }
 }

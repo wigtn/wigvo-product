@@ -9,6 +9,9 @@ on:
       - 'uv.lock'
   workflow_dispatch: {}
 
+permissions:
+  contents: read
+
 concurrency:
   group: deploy-relay-vm
   cancel-in-progress: false
@@ -31,8 +34,8 @@ jobs:
         env:
           REMOTE_CMD: >-
             cd /opt/wigvo/wigvo &&
-            sudo git fetch origin --quiet &&
-            sudo git reset --hard origin/main &&
+            sudo git fetch --quiet "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/wigtn/wigvo-product.git" main &&
+            sudo git reset --hard FETCH_HEAD &&
             cd deploy &&
             sudo docker compose -f docker-compose.cloud.yml up -d --build
         run: |
@@ -43,8 +46,8 @@ jobs:
           # key is already in the VM's authorized_keys. Repo is root-owned (cloned by
           # the startup script) so git runs under sudo, same as docker compose.
           run_deploy() {
-            gcloud compute start-iap-tunnel wigvo-relay 22 \
-              --project=wigtn-voice-only --zone=us-west1-a \
+            gcloud compute start-iap-tunnel wigvo-relay-prod 22 \
+              --project=wigss-491601 --zone=us-west1-a \
               --local-host-port=localhost:2222 >/tmp/iap.log 2>&1 &
             local tpid=$!
             local ready=0

@@ -289,6 +289,8 @@ class ActiveCall(BaseModel):
     call_id: str
     call_sid: str = ""
     tenant_id: UUID = DEFAULT_TENANT_ID
+    # 통화 흐름 방향 (tracing 필수 필드): True=인바운드(외국인 착신), False=아웃바운드(웹 발신)
+    inbound: bool = False
     mode: CallMode = CallMode.RELAY
     source_language: str = "en"
     target_language: str = "ko"

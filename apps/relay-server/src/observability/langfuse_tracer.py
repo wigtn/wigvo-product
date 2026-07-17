@@ -76,6 +76,7 @@ class LangfuseTracer:
             return
         try:
             mode = call.communication_mode.value if call.communication_mode else "unknown"
+            flow = "inbound" if call.inbound else "outbound"
             # 루트 observation 이름이 곧 trace 이름이 된다.
             root = self._client.start_observation(
                 name=f"📞 WIGVO Call · {call.source_language}↔{call.target_language} · {mode}",
@@ -83,6 +84,9 @@ class LangfuseTracer:
                     "call_id": call.call_id,
                     "call_sid": call.call_sid,
                     "mode": mode,
+                    # 필수 필드 (MEGA Loop 데이터셋 슬라이싱 키)
+                    "flow": flow,
+                    "tenant_id": str(call.tenant_id),
                     "source_language": call.source_language,
                     "target_language": call.target_language,
                 },

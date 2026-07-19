@@ -1,0 +1,189 @@
+"""화자 식별 — '이 발화가 응대자 본인인가'를 판정한다.
+
+왜 필요한가:
+  옆자리 대화·재생 음성이 통역에 섞여 들어간다. 게다가 그런 입력은 깨진
+  번역이 아니라 **유창한 창작**으로 나온다(실측: 유튜브 뉴스 "내년도 최저임금이
+  …" → "our final delivery timing will be one hour later"). 상대는 그걸 믿는다.
+
+왜 레벨로는 안 되는가:
+  절대 임계(250·2000)는 모두 발동 0건이었고, 상대 임계도 '멀리서 크게'와
+  '가까이서 조용히'를 구분하지 못한다. 크기는 마이크 게인·거리·목소리가
+  뒤섞인 값이라 보편 기준이 없다. 우리가 답해야 할 질문은 "가까운가"가 아니라
+  **"본인인가"** 다.
+
+모델: WeSpeaker ECAPA-TDNN512 (ONNX 24MB). onnxruntime은 Silero VAD가 이미
+      쓰고 있어 새 런타임 의존성이 없다. CAM++와 비교했으나 전처리를 각
+      모델 규격에 맞춘 뒤에도 ECAPA가 낫고 2배 빨랐다(잔향 조건 +0.633 vs +0.348).
+
+⚠️ 섀도 모드: 지금은 유사도를 계산해 기록만 하고 어떤 판단도 하지 않는다.
+   실제 사람 목소리 기준의 분포를 모으기 전에 차단을 켜면, 임계를 잘못 잡아
+   본인 발화를 통째로 막을 수 있다.
+"""
+from __future__ import annotations
+
+import asyncio
+import logging
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+
+import numpy as np
+
+try:
+    import onnxruntime as ort
+except Exception:  # onnxruntime 미설치 시 전체 no-op (통화 경로에 영향 없음)
+    ort = None
+
+logger = logging.getLogger(__name__)
+
+_MODEL_PATH = Path(__file__).resolve().parent / "models" / "speaker_ecapa_tdnn512.onnx"
+_EPS = np.finfo(np.float32).eps
+SR = 16000
+
+# 추론은 GIL을 놓는 ONNX 연산이므로 별도 스레드에서 돌린다 (Silero와 같은 방식).
+_EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix="spk-embed")
+
+
+# --- kaldi 호환 fbank (WeSpeaker 학습 규격) -----------------------------------
+# 전처리가 어긋나면 임베딩 품질이 그대로 깎인다. 실제로 규격을 맞추기 전과 후에
+# 모델 순위가 뒤바뀌었다.
+
+def _hamming(n: int) -> np.ndarray:
+    """WeSpeaker(ECAPA) 학습 규격. CAM++로 바꾸려면 povey 윈도우가 필요하다 —
+    전처리가 어긋나면 모델 순위가 뒤바뀔 만큼 영향이 크다."""
+    return (0.54 - 0.46 * np.cos(2 * np.pi * np.arange(n) / (n - 1))).astype(np.float32)
+
+
+def _mel_banks(n_mels: int, n_fft: int, sr: int, low: float = 20.0) -> np.ndarray:
+    n_bins = n_fft // 2 + 1
+    fft_freqs = np.arange(n_bins) * (sr / n_fft)
+
+    def hz2mel(f):
+        return 1127.0 * np.log(1.0 + f / 700.0)
+
+    mel_pts = np.linspace(hz2mel(low), hz2mel(sr / 2), n_mels + 2)
+    mel_freqs = hz2mel(fft_freqs)
+    fb = np.zeros((n_mels, n_bins), dtype=np.float32)
+    for i in range(n_mels):
+        left, center, right = mel_pts[i], mel_pts[i + 1], mel_pts[i + 2]
+        up = (mel_freqs - left) / (center - left)
+        down = (right - mel_freqs) / (right - center)
+        fb[i] = np.maximum(0.0, np.minimum(up, down))
+    return fb
+
+
+_MEL_FB = _mel_banks(80, 512, SR)
+_WINDOW = _hamming(400)
+
+
+def _fbank(wav: np.ndarray) -> np.ndarray:
+    """(T, 80) log-mel. kaldi: 프레임별 DC 제거 → preemphasis 0.97 → hamming → CMN."""
+    win_len, hop, n_fft = 400, 160, 512
+    x = wav.astype(np.float32)
+    if len(x) < win_len:
+        x = np.pad(x, (0, win_len - len(x)))
+    n_frames = 1 + (len(x) - win_len) // hop
+    idx = np.arange(win_len)[None, :] + hop * np.arange(n_frames)[:, None]
+    frames = x[idx].astype(np.float32)
+    frames = frames - frames.mean(axis=1, keepdims=True)
+    prev = np.concatenate([frames[:, :1], frames[:, :-1]], axis=1)
+    frames = (frames - 0.97 * prev) * _WINDOW
+    spec = np.abs(np.fft.rfft(frames, n=n_fft, axis=1)) ** 2
+    feat = np.log(np.maximum(spec @ _MEL_FB.T, _EPS)).astype(np.float32)
+    return feat - feat.mean(axis=0, keepdims=True)
+
+
+# --- 세션별 화자 판정 ---------------------------------------------------------
+
+_session: object = None
+_session_lock = threading.Lock()
+
+
+def _get_session():
+    global _session
+    if ort is None:
+        return None
+    with _session_lock:
+        if _session is None:
+            if not _MODEL_PATH.exists():
+                logger.warning("[SpeakerID] 모델 없음 (%s) — 비활성", _MODEL_PATH)
+                _session = False
+            else:
+                try:
+                    opts = ort.SessionOptions()
+                    # 세션은 프로세스 전역 하나이고 동시 추론은 _EXECUTOR(2)로
+                    # 제한된다. 스레드를 1로 두어 통화가 몰릴 때 ONNX 내부
+                    # 병렬화가 이벤트루프 코어를 뺏지 않게 한다.
+                    opts.intra_op_num_threads = 1
+                    _session = ort.InferenceSession(
+                        str(_MODEL_PATH), sess_options=opts,
+                        providers=["CPUExecutionProvider"],
+                    )
+                    logger.info("[SpeakerID] ECAPA-TDNN512 로드 완료")
+                except Exception:
+                    logger.exception("[SpeakerID] 모델 로드 실패 — 비활성")
+                    _session = False
+    return _session or None
+
+
+def _embed_sync(pcm: np.ndarray) -> np.ndarray | None:
+    sess = _get_session()
+    if sess is None:
+        return None
+    try:
+        e = sess.run(None, {"feats": _fbank(pcm)[None]})[0][0]
+        return e / (np.linalg.norm(e) + 1e-9)
+    except Exception:
+        logger.exception("[SpeakerID] 임베딩 실패")
+        return None
+
+
+class SpeakerMatcher:
+    """통화 1건의 화자 기준을 관리한다.
+
+    첫 발화(충분한 길이)를 응대자 기준으로 등록하고, 이후 발화의 유사도를
+    돌려준다. 섀도 모드에서는 이 값을 기록만 하고 판단에 쓰지 않는다.
+    """
+
+    #: 등록·판정에 필요한 최소 발화 길이. 너무 짧으면 임베딩이 불안정하다.
+    MIN_SECONDS = 1.0
+
+    def __init__(self) -> None:
+        self._reference: np.ndarray | None = None
+        self._enrolled_at: float = 0.0
+
+    @property
+    def enrolled(self) -> bool:
+        return self._reference is not None
+
+    async def score(self, pcm16: bytes) -> dict | None:
+        """세그먼트를 채점한다. 반환은 기록용 dict (None이면 처리 불가).
+
+        커밋 직전 세그먼트마다 1회만 호출한다 — 프레임 단위로 돌리면 Silero보다
+        무거운 모델을 50배 빈도로 돌리게 되어 감당할 수 없다.
+        """
+        if _get_session() is None or not pcm16:
+            return None
+        pcm = np.frombuffer(pcm16, dtype="<i2").astype(np.float32) / 32768.0
+        if len(pcm) < SR * self.MIN_SECONDS:
+            return None
+
+        loop = asyncio.get_running_loop()
+        started = time.perf_counter()
+        emb = await loop.run_in_executor(_EXECUTOR, _embed_sync, pcm)
+        elapsed_ms = (time.perf_counter() - started) * 1000
+        if emb is None:
+            return None
+
+        if self._reference is None:
+            self._reference = emb
+            self._enrolled_at = time.time()
+            logger.info("[SpeakerID] 응대자 기준 등록 (%.0fms)", elapsed_ms)
+            return {"speaker_similarity": 1.0, "speaker_enrolled": True,
+                    "speaker_embed_ms": round(elapsed_ms, 1)}
+
+        similarity = float(np.dot(self._reference, emb))
+        logger.info("[SpeakerID] 유사도 %.3f (%.0fms)", similarity, elapsed_ms)
+        return {"speaker_similarity": round(similarity, 3), "speaker_enrolled": False,
+                "speaker_embed_ms": round(elapsed_ms, 1)}

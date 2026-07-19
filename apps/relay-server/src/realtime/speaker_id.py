@@ -30,6 +30,8 @@ from pathlib import Path
 
 import numpy as np
 
+from src.config import settings
+
 try:
     import onnxruntime as ort
 except Exception:  # onnxruntime 미설치 시 전체 no-op (통화 경로에 영향 없음)
@@ -170,6 +172,10 @@ class SpeakerMatcher:
         self._candidates: list[np.ndarray] = []
         #: 선출 시점에 계산한 후보 구간의 사후 점수 (기록용)
         self._backfill: list[float] = []
+        #: 차단 판정 통계 — 오등록 시 자동 해제를 위해 센다
+        self._scored: int = 0
+        self._blocked: int = 0
+        self._enforce_disabled: bool = False
 
     @property
     def enrolled(self) -> bool:
@@ -263,6 +269,29 @@ class SpeakerMatcher:
         else:
             logger.info("[SpeakerID] 유사도 %.3f (%.0fms)", similarity, elapsed_ms)
 
+        self._scored += 1
+        is_other = similarity < settings.speaker_id_min_similarity
+        block = (
+            settings.speaker_id_enforce
+            and not self._enforce_disabled
+            and is_other
+        )
+        if block:
+            self._blocked += 1
+            # 등록이 오염되면 본인 발화가 전부 차단된다(실측: 통화 B). 차단이
+            # 과반을 넘으면 기준을 신뢰할 수 없다고 보고 그 통화의 차단을 끈다 —
+            # 잘못된 전면 차단은 조용히 일어나 사용자가 뒤늦게 알아챈다.
+            if (self._scored >= settings.speaker_id_abort_min_scored
+                    and self._blocked / self._scored > settings.speaker_id_abort_block_ratio):
+                self._enforce_disabled = True
+                block = False
+                logger.warning(
+                    "[SpeakerID] 차단 비율 %d/%d 과다 — 기준 오등록 의심, 이 통화의 차단 해제",
+                    self._blocked, self._scored,
+                )
+
         return {**base, "speaker_similarity": round(similarity, 3),
                 "speaker_enrolled": False, "speaker_phase": "scoring",
-                "speaker_enroll_count": self._enroll_count}
+                "speaker_enroll_count": self._enroll_count,
+                "speaker_is_other": is_other, "speaker_blocked": block,
+                "speaker_enforce_disabled": self._enforce_disabled}

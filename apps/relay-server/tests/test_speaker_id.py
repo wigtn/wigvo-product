@@ -161,3 +161,62 @@ class TestDeferredClusterEnrollment:
         after = await m.score(_tone(200))
         assert after["speaker_phase"] == "scoring"
         assert after["speaker_similarity"] is not None
+
+
+class TestEnforcement:
+    """차단 판정과 오등록 대비 안전장치.
+
+    잘못 차단하면 발화가 조용히 사라지고 사용자가 즉시 알아챈다 —
+    실측(2026-07-19): "방금 말한 거 왜 번역 안 해?". 그래서 임계는 보수적으로
+    잡고, 차단이 과반을 넘으면 기준을 못 믿는 것으로 보고 스스로 끈다.
+    """
+
+    def _enrolled(self, reference):
+        m = SpeakerMatcher()
+        m._reference = np.asarray(reference, dtype=np.float32)
+        m._reference /= np.linalg.norm(m._reference)
+        m._enroll_count = 3
+        return m
+
+    def _score_with(self, m, similarity):
+        """유사도를 직접 만들어 판정 로직만 검사한다."""
+        from src.config import settings
+        m._scored += 1
+        is_other = similarity < settings.speaker_id_min_similarity
+        block = settings.speaker_id_enforce and not m._enforce_disabled and is_other
+        if block:
+            m._blocked += 1
+            if (m._scored >= settings.speaker_id_abort_min_scored
+                    and m._blocked / m._scored > settings.speaker_id_abort_block_ratio):
+                m._enforce_disabled = True
+                block = False
+        return block
+
+    def test_other_speaker_is_blocked(self):
+        from src.config import settings
+
+        m = self._enrolled([1.0, 0.0, 0.0])
+        assert self._score_with(m, settings.speaker_id_min_similarity - 0.1) is True
+
+    def test_own_voice_passes(self):
+        from src.config import settings
+
+        m = self._enrolled([1.0, 0.0, 0.0])
+        assert self._score_with(m, settings.speaker_id_min_similarity + 0.1) is False
+
+    def test_enforcement_disables_itself_when_blocking_everything(self):
+        """등록이 오염되면 본인 발화가 전부 차단된다 — 실측(통화 B)에서 재현된
+        상황이다. 조용한 전면 차단만은 막는다."""
+        m = self._enrolled([1.0, 0.0, 0.0])
+        blocks = [self._score_with(m, 0.05) for _ in range(6)]
+        assert m._enforce_disabled is True, "차단 과다 시 스스로 꺼져야 한다"
+        assert blocks[-1] is False, "해제 후에는 통과시켜야 한다"
+
+    def test_does_not_disable_on_a_few_early_blocks(self):
+        """초반 몇 건이 타인이라고 곧바로 꺼지면 안 된다."""
+        from src.config import settings
+
+        m = self._enrolled([1.0, 0.0, 0.0])
+        for _ in range(settings.speaker_id_abort_min_scored - 1):
+            self._score_with(m, 0.05)
+        assert m._enforce_disabled is False

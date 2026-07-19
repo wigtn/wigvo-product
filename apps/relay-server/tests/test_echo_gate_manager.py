@@ -144,13 +144,18 @@ class TestFilterAudio:
         assert metrics.echo_gate_breakthroughs == 0
 
     def test_second_high_rms_breaks_gate(self):
-        """Echo window 중 두 번째 고에너지 → gate break + 원본 전달."""
+        """Echo window 중 두 번째 고에너지 → gate break + 원본 전달.
+
+        계약 변경(2026-07-19): 첫 돌파를 폐기하지 않고 보류했다가, 진짜 발화로
+        판별되면 함께 복원한다 — 폐기하면 인터럽트한 발화의 시작이 사라진다.
+        따라서 break 시 반환은 (보류분 + 현재 프레임)이다.
+        """
         gate, _, metrics = _make_echo_gate()
         gate.in_echo_window = True
         audio = bytes([0x10] * 160)
-        gate.filter_audio(audio)  # 첫 번째: 흡수
-        result = gate.filter_audio(audio)  # 두 번째: break
-        assert result == audio
+        gate.filter_audio(audio)  # 첫 번째: 보류
+        result = gate.filter_audio(audio)  # 두 번째: break + 보류분 복원
+        assert result == audio + audio
         assert gate.in_echo_window is False
         assert metrics.echo_gate_breakthroughs == 1
 

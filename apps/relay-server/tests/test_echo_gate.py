@@ -575,7 +575,9 @@ class TestEchoGateOnEvent:
         assert "deactivate" in stage_events
         bt_event = next(e for e in events if e[1] == "breakthrough")
         assert "rms" in bt_event[2]
-        assert result == loud_audio
+        # 계약 변경(2026-07-19): 첫 돌파를 폐기하지 않고 보류했다가 진짜 발화로
+        # 판별되면 함께 복원한다 — 폐기하면 인터럽트한 발화의 시작이 사라진다.
+        assert result == loud_audio + loud_audio
 
     @pytest.mark.asyncio
     async def test_settling_start_fires_event(self):
@@ -865,3 +867,54 @@ class TestVadNotFrozenDuringEchoWindow:
         gate._activate()
         assert gate.should_process_vad(50.0) is False
         assert gate.is_suppressing is True
+
+
+class TestBargeInOnsetPreserved:
+    """인터럽트한 발화의 시작 부분이 사라지지 않아야 한다.
+
+    기존 로직은 echo window 중 첫 고에너지 프레임을 'PSTN 에코겠지' 하고 폐기했다.
+    에코라면 맞지만, 진짜로 끼어든 발화라면 그 시작이 통째로 사라진다.
+    실측(2026-07-19 통화): 4회 폐기, 사용자 보고 "인터럽트하면 그 내용이 아예
+    안 들린다". 요약의 interrupts=0은 오디오가 버려져 인식조차 못 한 결과다.
+    """
+
+    def _make_gate(self):
+        session_b = MagicMock()
+        session_b.clear_input_buffer = AsyncMock()
+        return EchoGateManager(
+            session_b=session_b,
+            local_vad=None,
+            call_metrics=CallMetrics(),
+            echo_margin_s=0.3,
+            max_echo_window_s=1.0,
+        )
+
+    def test_onset_is_restored_when_speech_continues(self):
+        """연속 고에너지 = 진짜 발화 → 보류했던 시작 부분을 함께 내보낸다."""
+        gate = self._make_gate()
+        gate._activate()
+        onset = bytes([0x00] * 160)   # 고에너지 (발화 시작)
+        second = bytes([0x01] * 160)  # 고에너지 (계속)
+
+        assert gate.filter_audio(onset) == b"\xff" * 160  # 1프레임은 보류(아직 미판별)
+        out = gate.filter_audio(second)
+        assert out == onset + second, "인터럽트 시작 부분이 복원돼야 한다"
+
+    def test_onset_is_dropped_when_it_was_echo(self):
+        """돌파 후 조용해짐 = 에코였다 → 보류분 폐기(에코 누출 방지)."""
+        gate = self._make_gate()
+        gate._activate()
+        gate.filter_audio(bytes([0x00] * 160))     # 보류
+        quiet = bytes([0x7F] * 160)                 # 저에너지
+        assert gate.filter_audio(quiet) == b"\xff" * 160
+        assert gate._held_onset == b""
+
+    def test_new_window_clears_stale_onset(self):
+        """창이 새로 열리면 이전 보류분은 폐기한다 (다른 발화에 섞이면 안 됨)."""
+        gate = self._make_gate()
+        gate._activate()
+        gate.filter_audio(bytes([0x00] * 160))
+        assert gate._held_onset != b""
+        gate._in_echo_window = False
+        gate._activate()
+        assert gate._held_onset == b""

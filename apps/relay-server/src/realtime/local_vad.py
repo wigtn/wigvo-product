@@ -25,6 +25,7 @@ import asyncio
 import logging
 import os
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from enum import Enum
 from pathlib import Path
@@ -176,6 +177,7 @@ class LocalVAD:
         # State machine
         self._state = _VadState.SILENCE
         self._speech_count = 0
+        self._speech_started_at: float = 0.0
         self._silence_count = 0
 
         # Frame adapter buffer: 20ms (160→320 upsampled) → 32ms (512 samples @ 16kHz)
@@ -208,6 +210,15 @@ class LocalVAD:
     @property
     def is_speaking(self) -> bool:
         return self._state == _VadState.SPEAKING
+
+    @property
+    def speech_started_at(self) -> float:
+        """현재 발화가 SPEAKING으로 전환된 시각 (epoch). 미발화면 0.0.
+
+        EchoGateManager가 인과 판정에 쓴다 — TTS보다 먼저 시작된 발화는
+        그 TTS의 에코일 수 없다.
+        """
+        return self._speech_started_at if self._state == _VadState.SPEAKING else 0.0
 
     @property
     def peak_rms(self) -> float:
@@ -323,6 +334,7 @@ class LocalVAD:
     async def _transition_to_speaking(self) -> None:
         """SILENCE → SPEAKING 전환."""
         self._state = _VadState.SPEAKING
+        self._speech_started_at = time.time()
         self._speech_count = 0
         self._silence_count = 0
         # peak_rms는 candidate 단계에서 이미 추적 중 — 여기서 리셋하면 pre-transition 값 손실
@@ -353,6 +365,7 @@ class LocalVAD:
         콜백 없이 상태만 동기화한다.
         """
         self._state = _VadState.SPEAKING
+        self._speech_started_at = time.time()
         self._speech_count = 0
         self._silence_count = 0
         self._peak_rms = 0.0

@@ -752,3 +752,59 @@ class TestPreActivateProtectsRecipientSpeech:
         assert settings.echo_pre_activate_timeout_s <= 3.0, (
             "이 창이 열려 있는 동안 수신자 음성이 침묵으로 대체되므로 길면 안 된다"
         )
+
+
+class TestTemporalInvariant:
+    """에코창보다 먼저 시작된 발화는 억제하지 않는다 (인과적으로 에코일 수 없음).
+
+    pre_activate의 skip은 '창을 아예 열지 않는' 빠른 경로일 뿐이라
+    (a) 이미 열려 있는 창, (b) 판독 직후 시작된 발화를 막지 못한다.
+    두 경우 모두 filter_audio의 시간 불변식이 프레임 단위로 처리한다.
+    """
+
+    def _make_gate(self, speech_started_at: float):
+        session_b = MagicMock()
+        session_b.clear_input_buffer = AsyncMock()
+        local_vad = MagicMock()
+        local_vad.speech_started_at = speech_started_at
+        local_vad.is_speaking = speech_started_at > 0
+        return EchoGateManager(
+            session_b=session_b,
+            local_vad=local_vad,
+            call_metrics=CallMetrics(),
+            echo_margin_s=0.3,
+            max_echo_window_s=1.0,
+        )
+
+    def test_speech_started_before_window_passes_through(self):
+        """TTS 재생 중 barge-in: 발화가 창보다 먼저 시작됐으면 원본 통과."""
+        gate = self._make_gate(speech_started_at=time.time() - 1.0)
+        gate._activate()  # 창이 나중에 열림
+        quiet = b"\xff" * 160  # 저에너지 — 원래라면 침묵으로 대체될 프레임
+        assert gate.filter_audio(quiet) == quiet
+        loud = bytes([0x00] * 160)
+        assert gate.filter_audio(loud) == loud  # 첫 돌파 흡수 로직도 타지 않는다
+
+    def test_speech_started_after_window_is_suppressed(self):
+        """창이 열린 뒤 감지된 소리는 에코일 수 있으므로 기존 억제 경로를 탄다."""
+        gate = self._make_gate(speech_started_at=0.0)
+        gate._activate()
+        gate._local_vad.speech_started_at = time.time()  # 창 이후 시작
+        quiet = b"\xff" * 160
+        assert gate.filter_audio(quiet) == b"\xff" * 160
+
+    def test_no_speech_is_suppressed_normally(self):
+        gate = self._make_gate(speech_started_at=0.0)
+        gate._activate()
+        quiet = bytes([0x7F] * 160)
+        assert gate.filter_audio(quiet) == b"\xff" * len(quiet)
+
+    def test_window_reopen_resets_reference_time(self):
+        """창이 새로 열리면 기준 시각도 갱신 — 이전 창 기준으로 통과시키면 안 된다."""
+        gate = self._make_gate(speech_started_at=0.0)
+        gate._activate()
+        first_open = gate._echo_window_opened_at
+        gate._in_echo_window = False
+        time.sleep(0.01)
+        gate._activate()
+        assert gate._echo_window_opened_at > first_open

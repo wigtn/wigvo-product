@@ -56,3 +56,38 @@ def test_queue_is_bounded():
     assert len(h._pending_user_stt) <= 8
     # 가장 오래된 것부터 밀려나므로 최근 발화가 남는다
     assert h._take_user_stt() == "utterance 42"
+
+
+class TestSessionBPairing:
+    """수신자측(Session B)도 같은 구조 — 한쪽만 고치면 절반이 계속 오염된다.
+
+    실측(2026-07-19 10:31, Session A 수정 배포 후): 한국어 원문 턴들이 여전히
+    어긋나 있었다. "혹시 지금 야외에 계신가요?" → "It's chicken over rice."
+    """
+
+    def _bare(self):
+        from collections import deque
+
+        from src.realtime.sessions.session_b import SessionBHandler
+
+        h = SessionBHandler.__new__(SessionBHandler)
+        h._pending_recipient_stt = deque(maxlen=8)
+        return h
+
+    def test_pairs_in_order(self):
+        h = self._bare()
+        h._pending_recipient_stt.append((time.time(), "혹시 지금 야외에 계신가요?"))
+        h._pending_recipient_stt.append((time.time(), "잘 들리시나요?"))
+        assert h._take_recipient_stt() == "혹시 지금 야외에 계신가요?"
+        assert h._take_recipient_stt() == "잘 들리시나요?"
+
+    def test_empty_returns_fallback_marker(self):
+        assert self._bare()._take_recipient_stt() == ""
+
+    def test_stale_dropped(self):
+        from src.realtime.sessions.session_b import _STT_PAIR_MAX_AGE_S
+
+        h = self._bare()
+        h._pending_recipient_stt.append((time.time() - (_STT_PAIR_MAX_AGE_S + 1), "옛날 원문"))
+        h._pending_recipient_stt.append((time.time(), "현재 원문"))
+        assert h._take_recipient_stt() == "현재 원문"

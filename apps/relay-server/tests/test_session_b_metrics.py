@@ -605,6 +605,11 @@ class TestSpeechOnlyCommit:
 # ─── Fix 2: Korean Whisper Append-Hallucination Filter ──────────────
 
 
+def _stored_stt(handler) -> str:
+    """대기열에 마지막으로 저장된 원문 (단일 슬롯 → FIFO 큐 전환 대응)."""
+    return handler._pending_recipient_stt[-1][1] if handler._pending_recipient_stt else ""
+
+
 class TestWhisperAppendFilter:
     """Fix 2: Korean Whisper append-hallucination 패턴 필터."""
 
@@ -621,8 +626,8 @@ class TestWhisperAppendFilter:
         )
 
         # 원문이 트리밍된 텍스트로 저장됨
-        assert "영상편집" not in handler._last_recipient_stt
-        assert "바꾸고" in handler._last_recipient_stt
+        assert "영상편집" not in _stored_stt(handler)
+        assert "바꾸고" in _stored_stt(handler)
         assert handler._stt_blocked is False
 
     @pytest.mark.asyncio
@@ -637,8 +642,8 @@ class TestWhisperAppendFilter:
             {"transcript": "안녕하세요 재택 플러스"}
         )
 
-        assert "재택" not in handler._last_recipient_stt
-        assert handler._last_recipient_stt == "안녕하세요"
+        assert "재택" not in _stored_stt(handler)
+        assert _stored_stt(handler) == "안녕하세요"
 
     @pytest.mark.asyncio
     async def test_full_hallucination_blocked(self):
@@ -668,7 +673,7 @@ class TestWhisperAppendFilter:
         )
 
         # 꼬리 "배혜지 감독"이 제거됨 (동사 어미 없음)
-        assert "배혜지" not in handler._last_recipient_stt
+        assert "배혜지" not in _stored_stt(handler)
         assert handler._stt_blocked is False
 
     @pytest.mark.asyncio
@@ -683,7 +688,7 @@ class TestWhisperAppendFilter:
             {"transcript": "네, 안녕하세요. 도와드리겠습니다."}
         )
 
-        assert handler._last_recipient_stt == "네, 안녕하세요. 도와드리겠습니다."
+        assert _stored_stt(handler) == "네, 안녕하세요. 도와드리겠습니다."
         assert handler._stt_blocked is False
 
     @pytest.mark.asyncio
@@ -699,7 +704,7 @@ class TestWhisperAppendFilter:
             {"transcript": "Hello 영상편집 test"}
         )
 
-        assert handler._last_recipient_stt == "Hello 영상편집 test"
+        assert _stored_stt(handler) == "Hello 영상편집 test"
         assert handler._stt_blocked is False
 
     @pytest.mark.asyncio
@@ -715,7 +720,7 @@ class TestWhisperAppendFilter:
         )
 
         # "확인해드리겠습니다"는 종결 어미 "습니다"로 끝남 → 정상 통과
-        assert "확인해드리겠습니다" in handler._last_recipient_stt
+        assert "확인해드리겠습니다" in _stored_stt(handler)
 
     @pytest.mark.asyncio
     async def test_youtube_outro_appended_trimmed(self):
@@ -729,9 +734,9 @@ class TestWhisperAppendFilter:
             {"transcript": "여보세요? 누구시죠? 시청해 주셔서 감사합니다! 구독 해주세요!"}
         )
 
-        assert "시청해" not in handler._last_recipient_stt
-        assert "구독" not in handler._last_recipient_stt
-        assert "누구시죠" in handler._last_recipient_stt
+        assert "시청해" not in _stored_stt(handler)
+        assert "구독" not in _stored_stt(handler)
+        assert "누구시죠" in _stored_stt(handler)
         assert handler._stt_blocked is False
 
     @pytest.mark.asyncio
@@ -746,8 +751,8 @@ class TestWhisperAppendFilter:
             {"transcript": "저분 성함이 어떻게 되세요? 수고하셨습니다."}
         )
 
-        assert "수고하셨습니다" not in handler._last_recipient_stt
-        assert "성함" in handler._last_recipient_stt
+        assert "수고하셨습니다" not in _stored_stt(handler)
+        assert "성함" in _stored_stt(handler)
         assert handler._stt_blocked is False
 
     @pytest.mark.asyncio

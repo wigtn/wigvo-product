@@ -23,6 +23,9 @@ from src.types import ActiveCall, CostTokens, TranscriptEntry
 
 logger = logging.getLogger(__name__)
 
+# 짝지어지지 않은 원문의 최대 보관 시간 (밀림 방지).
+_STT_PAIR_MAX_AGE_S = 30.0
+
 # Whisper 한국어 할루시네이션 블랙리스트
 # 학습 데이터(방송 뉴스 자막) 편향으로 무음/저에너지 구간에서 반복 생성되는 패턴
 _STT_HALLUCINATION_BLOCKLIST = frozenset({
@@ -300,7 +303,11 @@ class SessionBHandler:
         self._response_done_event.set()  # 초기 상태: 응답 없음
 
         # 번역 품질 평가용: Recipient STT 원문 임시 저장
-        self._last_recipient_stt: str = ""
+        # 원문 STT 대기열 (번역 완료 시 순서대로 짝지어 소비).
+        # Session A와 동일한 이유 — 단일 슬롯이면 발화가 겹칠 때 번역이 다른
+        # 발화의 원문과 묶여 품질 데이터가 오염된다. 실측(2026-07-19):
+        # "혹시 지금 야외에 계신가요?" → "It's chicken over rice." 같은 쌍이 기록됐다.
+        self._pending_recipient_stt: deque[tuple[float, str]] = deque(maxlen=8)
         # STT 블록리스트/노이즈 매칭 시 대응하는 번역도 차단하기 위한 플래그
         self._stt_blocked: bool = False
         # STT↔번역 순서 경쟁 방지: create_response() 전 clear, STT 완료 시 set
@@ -409,6 +416,22 @@ class SessionBHandler:
         return self._is_recipient_speaking
 
     # --- STT 누적 카운터 ---
+
+    def _take_recipient_stt(self) -> str:
+        """번역 하나에 대응하는 원문을 대기열에서 꺼낸다 (FIFO).
+
+        짝을 잃은 오래된 항목은 폐기한다 — 남기면 이후 번역이 한 칸씩 밀린다.
+        """
+        cutoff = time.time() - _STT_PAIR_MAX_AGE_S
+        while self._pending_recipient_stt and self._pending_recipient_stt[0][0] < cutoff:
+            ts, text = self._pending_recipient_stt.popleft()
+            logger.info(
+                "[SessionB] STT 짝 유실 — %.1fs 경과분 폐기: %s",
+                time.time() - ts, text[:40],
+            )
+        if not self._pending_recipient_stt:
+            return ""
+        return self._pending_recipient_stt.popleft()[1]
 
     def _decrement_pending_stt(self) -> None:
         """Pending STT 카운터 감소 + 모든 STT 수신 시 event 설정."""
@@ -824,10 +847,12 @@ class SessionBHandler:
         # 양방향 transcript 저장 — 억제 상태와 무관하게 항상 저장
         # original_text: Recipient STT 원문 (target lang), translated_text: 번역 출력 (source lang)
         if self._call:
+            # 이 번역에 대응하는 원문을 대기열에서 순서대로 하나 꺼낸다
+            paired_original = self._take_recipient_stt()
             self._call.transcript_bilingual.append(
                 TranscriptEntry(
                     role="recipient",
-                    original_text=self._last_recipient_stt or transcript,
+                    original_text=paired_original or transcript,
                     translated_text=transcript,
                     language=self._call.target_language,
                     timestamp=time.time(),
@@ -837,16 +862,15 @@ class SessionBHandler:
             # 여기까지 도달 = 3단계 anti-hallucination 필터를 모두 통과한 턴.
             self._lf_pending_turn = {
                 "direction": "callee_to_caller",
-                "original_text": self._last_recipient_stt or transcript,
+                "original_text": paired_original or transcript,
                 "translated_text": transcript,
                 "language": self._call.target_language,
                 "latency_breakdown": _lf_latency,
                 "stages": {
                     "anti_hallucination": "passed",
-                    "stt_source": "recipient_stt" if self._last_recipient_stt else "translation_fallback",
+                    "stt_source": "recipient_stt" if paired_original else "translation_fallback",
                 },
             }
-            self._last_recipient_stt = ""  # 사용 후 초기화
 
         # 대화 컨텍스트 콜백
         if self._on_transcript_complete:
@@ -1125,7 +1149,7 @@ class SessionBHandler:
             return
 
         # 누적 원본 텍스트를 bilingual transcript용으로 저장
-        self._last_recipient_stt = stt_text
+        self._pending_recipient_stt.append((time.time(), stt_text))
 
         # Chat API 번역 — clear는 translate 완료 후 (취소 시 데이터 보존)
         result = await self._chat_translator.translate(stt_text)
@@ -1379,7 +1403,8 @@ class SessionBHandler:
                         logger.warning("[SessionB] Trailing fragment removed: '%s'", m.group(1).strip())
                         transcript = trimmed
 
-            self._last_recipient_stt = transcript  # 번역 품질 평가용 원문 저장 (필터 통과 후)
+            # 번역과 순서대로 짝지을 원문 (필터 통과 후)
+            self._pending_recipient_stt.append((time.time(), transcript))
 
             # Chat API: STT 텍스트 누적 + 모든 pending commit의 STT 수신 시 대기 해제
             if self._chat_translator:

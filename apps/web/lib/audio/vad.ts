@@ -39,7 +39,9 @@ export interface VadConfig {
 }
 
 const DEFAULT_VAD_CONFIG: VadConfig = {
-  speechThreshold: 0.015,
+  // 근접 발화만 받도록 상향(2026-07-19). 이전 0.015는 원거리 대화까지
+  // 발화로 인식했다 — 응대자 본인이 아닌 주변 사람 목소리가 통역에 섞였다.
+  speechThreshold: 0.035,
   silenceThreshold: 0.008,
   speechOnsetDelay: 150,
   speechEndDelay: 350,
@@ -49,7 +51,8 @@ const DEFAULT_VAD_CONFIG: VadConfig = {
   noiseFloorMax: 0.04,
   noiseFloorDecay: 0.3,
   noiseFloorAttack: 0.05,
-  speechFloorRatio: 3.0,
+  // 소음 바닥 대비 배수. 주변이 시끄러울수록 더 확실히 근접 발화만 통과시킨다.
+  speechFloorRatio: 4.0,
   silenceFloorRatio: 1.8,
 };
 

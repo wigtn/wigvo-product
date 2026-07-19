@@ -19,14 +19,21 @@ const SPEEX_WASM_URL = '/noise-suppressor/speex.wasm';
 // High-pass cutoff: removes low-frequency rumble/hum below the voice band.
 const HIGHPASS_FREQUENCY_HZ = 100;
 
-// Far-field AGC: lift quiet (distant) speech toward a target level so the
-// ClientVAD thresholds and the relay's commit energy gate still see it.
-// Denoise-first ordering matters — AGC alone would amplify noise as well.
+// 근접 발화 정규화(near-field normalization).
+//
+// ⚠️ 목적이 바뀌었다. 처음에는 '멀리 있는 발화를 살리자'(far-field 강화)로
+// 만들었으나, 이 제품에서 원거리 소리는 응대자 본인이 아니라 옆자리 동료·다른
+// 민원인이다 — 살릴 대상이 아니라 **막을 대상**이다. 실사용 피드백:
+// "너무 민감함, 멀리서 사람이 말해도 그게 다 들어감"(2026-07-19).
+// 게인을 크게 주면 원거리 음성이 서버 커밋 게이트를 그대로 통과한다.
+// 따라서 게인은 '녹음 레벨이 낮은 마이크 보정' 수준으로만 남긴다.
 // Chunk-level EMA tracking, gain clamped to [1, 8]. NOTE: measured on real
 // far-field corpora this chain is WER-neutral — see FARFIELD_HARNESS.md before
 // claiming an accuracy benefit.
 const AGC_TARGET_RMS = 0.05;
-const AGC_MAX_GAIN = 8;
+// 8배는 먼 목소리까지 발화 수준으로 끌어올려 게이트를 무력화했다.
+// 마이크 레벨 편차 보정에 필요한 최소한만 남긴다.
+const AGC_MAX_GAIN = 2;
 const AGC_LEVEL_EMA = 0.9; // previous-level weight per 100ms chunk
 // Speech gate: chunks below this RMS pass through untouched. Without it the
 // level EMA sinks to its floor during pauses, so the next quiet chunk gets max
@@ -36,7 +43,9 @@ const AGC_LEVEL_EMA = 0.9; // previous-level weight per 100ms chunk
 // synthetic harness; on real far-field corpora (AMI, LibriSpeech+measured RIR)
 // the gate is WER-neutral, so it is kept as a safety property of the AGC rather
 // than an accuracy win. See FARFIELD_HARNESS.md for the full numbers.
-const AGC_GATE_RMS = 0.006;
+// 이 값보다 작은 청크는 증폭하지 않는다. 원거리 음성을 발화 수준으로
+// 끌어올리지 않도록 근접 발화 대역만 대상으로 삼는다.
+const AGC_GATE_RMS = 0.02;
 
 interface SpeexAssets {
   SpeexWorkletNode: typeof SpeexWorkletNode;

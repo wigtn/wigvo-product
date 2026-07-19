@@ -22,7 +22,9 @@ const HIGHPASS_FREQUENCY_HZ = 100;
 // Far-field AGC: lift quiet (distant) speech toward a target level so the
 // ClientVAD thresholds and the relay's commit energy gate still see it.
 // Denoise-first ordering matters — AGC alone would amplify noise as well.
-// Harness-tuned: chunk-level EMA tracking, gain clamped to [1, 8].
+// Chunk-level EMA tracking, gain clamped to [1, 8]. NOTE: measured on real
+// far-field corpora this chain is WER-neutral — see FARFIELD_HARNESS.md before
+// claiming an accuracy benefit.
 const AGC_TARGET_RMS = 0.05;
 const AGC_MAX_GAIN = 8;
 const AGC_LEVEL_EMA = 0.9; // previous-level weight per 100ms chunk
@@ -30,8 +32,10 @@ const AGC_LEVEL_EMA = 0.9; // previous-level weight per 100ms chunk
 // level EMA sinks to its floor during pauses, so the next quiet chunk gets max
 // gain — which lifts room babble to speech level, hides the silence the VAD
 // needs to close a segment, and merges neighbouring utterances into one commit
-// that carries the other talkers into STT. Harness-confirmed: CER 220% → 17%
-// at 3m with babble (see FARFIELD_HARNESS.md).
+// that carries the other talkers into STT. The merge is reproducible in the
+// synthetic harness; on real far-field corpora (AMI, LibriSpeech+measured RIR)
+// the gate is WER-neutral, so it is kept as a safety property of the AGC rather
+// than an accuracy win. See FARFIELD_HARNESS.md for the full numbers.
 const AGC_GATE_RMS = 0.006;
 
 interface SpeexAssets {

@@ -109,6 +109,26 @@ class TestDeferredClusterEnrollment:
         assert float(np.dot(m._reference, np.array(bg, dtype=np.float32))) < 0.4
         assert m._enroll_count == 3
 
+    def test_election_is_deferred_when_no_majority_exists(self):
+        """후보가 전부 다른 화자면 선출을 보류한다.
+
+        그대로 선출하면 무리가 1개가 되어 '첫 발화 = 기준'으로 되돌아간다 —
+        고치려던 문제 그대로다.
+        """
+        m = self._matcher_with([[1, 0, 0], [0, 1, 0], [0, 0, 1]])
+        assert m._elect_reference() == 0
+        assert m.enrolled is False
+        assert len(m._candidates) == 3, "후보는 버리지 않고 더 모은다"
+
+    def test_backfill_scores_the_candidate_window(self):
+        """후보 구간도 사후 채점한다 — 그냥 버리면 통화당 앞 N건이 통째로 빠진다."""
+        op = [0.0, 1.0, 0.0]
+        m = self._matcher_with([op, op, [1.0, 0.0, 0.0]])
+        m._elect_reference()
+        assert len(m._backfill) == 3
+        assert m._backfill[0] > 0.9   # 응대자
+        assert m._backfill[2] < 0.4   # 타인
+
     def test_reference_is_average_of_the_cluster(self):
         """한 발성에 묶이지 않도록 무리 전체를 평균한다."""
         a = [1.0, 0.1, 0.0]

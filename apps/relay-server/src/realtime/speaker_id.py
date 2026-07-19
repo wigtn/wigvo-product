@@ -172,10 +172,54 @@ class SpeakerMatcher:
         self._candidates: list[np.ndarray] = []
         #: 선출 시점에 계산한 후보 구간의 사후 점수 (기록용)
         self._backfill: list[float] = []
-        #: 차단 판정 통계 — 오등록 시 자동 해제를 위해 센다
+        #: 판정 통계 (기록용) — _other는 실제 차단이 아니라 '타인 판정' 수다.
+        #: 해제 이후에도 계속 세야 사후에 오등록 여부를 되짚을 수 있다.
         self._scored: int = 0
-        self._blocked: int = 0
+        self._other: int = 0
+        #: 통과 없이 연속으로 타인 판정된 횟수 — 오등록 판정에 쓴다
+        self._consecutive_blocks: int = 0
+        #: 그 통화에서 도달한 최대 연속 수 — 해제 근거가 로그 한 줄에만 남지 않도록
+        self._max_consecutive_blocks: int = 0
         self._enforce_disabled: bool = False
+
+    def _decide(self, similarity: float) -> tuple[bool, bool]:
+        """유사도 하나로 (타인 여부, 차단 여부)를 정하고 카운터를 갱신한다.
+
+        score()에서 분리한 이유는 테스트가 이 판정만 따로 검사할 수 있게
+        하기 위해서다 — 테스트가 로직을 복제해 두면 사본만 통과하고 실제
+        코드의 회귀는 놓친다.
+        """
+        self._scored += 1
+        is_other = similarity < settings.speaker_id_min_similarity
+
+        # 집계는 실제 차단 여부가 아니라 판정(is_other) 기준으로 센다. 해제 이후에는
+        # block이 항상 False라 차단 기준으로 세면 카운터가 그 자리에서 멈춰,
+        # 사후에 "그 통화에서 타인 발화가 몇 건이었나"를 되짚을 수 없다.
+        if is_other:
+            self._other += 1
+            self._consecutive_blocks += 1
+            self._max_consecutive_blocks = max(
+                self._max_consecutive_blocks, self._consecutive_blocks)
+        else:
+            # 본인 발화가 통과했다 = 기준이 살아 있다
+            self._consecutive_blocks = 0
+
+        block = (
+            settings.speaker_id_enforce
+            and not self._enforce_disabled
+            and is_other
+        )
+        # 오등록이면 본인 발화조차 통과하지 못한다(실측: 통화 B). 그 신호는
+        # '차단이 많다'가 아니라 '통과가 아예 없다'이므로 연속 차단을 센다 —
+        # 배경음이 많은 환경에서 정당한 차단이 과반을 넘는 것은 정상이다.
+        if block and self._consecutive_blocks >= settings.speaker_id_abort_consecutive_blocks:
+            self._enforce_disabled = True
+            block = False
+            logger.warning(
+                "[SpeakerID] %d회 연속 차단 — 기준 오등록 의심, 이 통화의 차단 해제",
+                self._consecutive_blocks,
+            )
+        return is_other, block
 
     @property
     def enrolled(self) -> bool:
@@ -269,29 +313,12 @@ class SpeakerMatcher:
         else:
             logger.info("[SpeakerID] 유사도 %.3f (%.0fms)", similarity, elapsed_ms)
 
-        self._scored += 1
-        is_other = similarity < settings.speaker_id_min_similarity
-        block = (
-            settings.speaker_id_enforce
-            and not self._enforce_disabled
-            and is_other
-        )
-        if block:
-            self._blocked += 1
-            # 등록이 오염되면 본인 발화가 전부 차단된다(실측: 통화 B). 차단이
-            # 과반을 넘으면 기준을 신뢰할 수 없다고 보고 그 통화의 차단을 끈다 —
-            # 잘못된 전면 차단은 조용히 일어나 사용자가 뒤늦게 알아챈다.
-            if (self._scored >= settings.speaker_id_abort_min_scored
-                    and self._blocked / self._scored > settings.speaker_id_abort_block_ratio):
-                self._enforce_disabled = True
-                block = False
-                logger.warning(
-                    "[SpeakerID] 차단 비율 %d/%d 과다 — 기준 오등록 의심, 이 통화의 차단 해제",
-                    self._blocked, self._scored,
-                )
+        is_other, block = self._decide(similarity)
 
         return {**base, "speaker_similarity": round(similarity, 3),
                 "speaker_enrolled": False, "speaker_phase": "scoring",
                 "speaker_enroll_count": self._enroll_count,
                 "speaker_is_other": is_other, "speaker_blocked": block,
+                "speaker_consecutive_blocks": self._consecutive_blocks,
+                "speaker_max_consecutive_blocks": self._max_consecutive_blocks,
                 "speaker_enforce_disabled": self._enforce_disabled}

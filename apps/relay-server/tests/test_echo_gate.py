@@ -735,6 +735,16 @@ class TestPreActivateProtectsRecipientSpeech:
         assert gate.in_echo_window is True
         gate._pre_activate_timeout.cancel()
 
+    def test_is_speaking_is_a_property_on_real_localvad(self):
+        """MagicMock만으로는 계약 변경을 못 잡는다.
+
+        is_speaking이 속성에서 메서드로 바뀌면 실코드에서는 bound method가
+        항상 truthy라 모든 pre_activate가 skip되어 에코 억제가 전면 무력화된다.
+        """
+        from src.realtime.local_vad import LocalVAD
+
+        assert isinstance(LocalVAD.is_speaking, property)
+
     def test_timeout_defaults_to_setting(self):
         """TTS가 오지 않을 때 수신자를 막는 시간 — 설정값을 따른다."""
         from src.config import settings

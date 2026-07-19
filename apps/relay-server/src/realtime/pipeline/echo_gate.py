@@ -117,14 +117,21 @@ class EchoGateManager:
         사람의 발화에 침묵을 주입해 통째로 죽인다. 실측(2026-07-19 통화):
         08:10:38 수신자 발화 시작 → 08:10:39 에코창 활성 → 그 통화의 수신자측
         번역 0건. Session A가 말할수록 수신자가 더 안 들리는 구조였다.
+
+        이 검사가 막지 못하는 경로 (알려진 한계):
+          - 이미 열려 있는 echo window: TTS 재생 중 수신자가 끼어들면 여기로 오지
+            않으므로 여전히 억제된다(기존 first-breakthrough / RMS 돌파에만 의존).
+          - 경쟁: is_speaking을 읽은 직후 발화가 시작되면 그 발화는 억제된다.
+        근본 해결은 '발화 시작 시각 < TTS 시작 시각이면 억제하지 않는다'는 시간
+        기반 불변식이며, 에코 누출 재측정과 함께 별도로 다룬다.
         """
-        if timeout_s is None:
-            timeout_s = settings.echo_pre_activate_timeout_s
         if self._local_vad is not None and self._local_vad.is_speaking:
             logger.info(
                 "Pre-activate skipped — 수신자가 이미 발화 중 (진행 중 발화 보호)"
             )
             return
+        if timeout_s is None:
+            timeout_s = settings.echo_pre_activate_timeout_s
         self._activate()
         if self._pre_activate_timeout and not self._pre_activate_timeout.done():
             self._pre_activate_timeout.cancel()

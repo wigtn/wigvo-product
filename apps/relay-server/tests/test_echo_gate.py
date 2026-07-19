@@ -683,3 +683,62 @@ class TestEchoGateDisabled:
             mock_settings.echo_energy_threshold_rms = 400.0
             result = gate.filter_audio(loud_audio)
         assert result == b"\xff" * 160  # 흡수됨
+
+
+class TestPreActivateProtectsRecipientSpeech:
+    """진행 중인 수신자 발화를 pre_activate가 죽이지 않아야 한다.
+
+    실측(2026-07-19 통화): 08:10:38 수신자 발화 시작 → 08:10:39 에코창 활성
+    → 침묵 주입으로 발화가 잘려 그 통화의 수신자측 번역이 0건이었다.
+    아직 보내지도 않은 TTS의 에코일 수 없으므로(인과적으로 불가능) 창을 열면 안 된다.
+    """
+
+    def _make_gate(self, vad_speaking: bool):
+        session_b = MagicMock()
+        session_b.clear_input_buffer = AsyncMock()
+        local_vad = MagicMock()
+        local_vad.is_speaking = vad_speaking
+        return EchoGateManager(
+            session_b=session_b,
+            local_vad=local_vad,
+            call_metrics=CallMetrics(),
+            echo_margin_s=0.3,
+            max_echo_window_s=1.0,
+        )
+
+    def test_skips_when_recipient_is_speaking(self):
+        gate = self._make_gate(vad_speaking=True)
+        gate.pre_activate()
+        assert gate.in_echo_window is False
+        assert gate.is_suppressing is False
+
+    @pytest.mark.asyncio
+    async def test_activates_when_recipient_is_silent(self):
+        gate = self._make_gate(vad_speaking=False)
+        gate.pre_activate()  # watchdog 태스크 생성 → 이벤트루프 필요
+        assert gate.in_echo_window is True
+        gate._pre_activate_timeout.cancel()
+
+    @pytest.mark.asyncio
+    async def test_activates_when_no_local_vad(self):
+        """local_vad가 없는 구성(핸드셋 등)에서는 기존 동작을 유지한다."""
+        session_b = MagicMock()
+        session_b.clear_input_buffer = AsyncMock()
+        gate = EchoGateManager(
+            session_b=session_b,
+            local_vad=None,
+            call_metrics=CallMetrics(),
+            echo_margin_s=0.3,
+            max_echo_window_s=1.0,
+        )
+        gate.pre_activate()
+        assert gate.in_echo_window is True
+        gate._pre_activate_timeout.cancel()
+
+    def test_timeout_defaults_to_setting(self):
+        """TTS가 오지 않을 때 수신자를 막는 시간 — 설정값을 따른다."""
+        from src.config import settings
+
+        assert settings.echo_pre_activate_timeout_s <= 3.0, (
+            "이 창이 열려 있는 동안 수신자 음성이 침묵으로 대체되므로 길면 안 된다"
+        )

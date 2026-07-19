@@ -208,6 +208,10 @@ class Settings(BaseSettings):
     echo_gate_cooldown_s: float = 2.5  # TTS 완료 후 에코 소멸 대기 (레거시 폴백용)
     echo_post_settling_s: float = 3.0  # Legacy: EchoGateManager에서 미사용 (dynamic settling으로 대체)
     # Dynamic Settling (Silero VAD double gate)
+    # commit → TTS 도착까지 선제적으로 에코창을 여는 시간. 이 창이 열려 있는 동안
+    # 수신자 음성은 침묵으로 대체되므로, TTS가 끝내 오지 않으면 그만큼 수신자가
+    # 통째로 차단된다. 실측상 TTS는 1~2초 내 도착하므로 5초는 과했다.
+    echo_pre_activate_timeout_s: float = 2.5
     echo_settling_min_s: float = 0.5          # 최소 settling (짧은 TTS)
     echo_settling_max_s: float = 1.5          # 최대 settling (기존 3.0→1.5)
     echo_settling_tts_ratio: float = 0.3      # settling = TTS길이 × ratio, [min, max] clamp

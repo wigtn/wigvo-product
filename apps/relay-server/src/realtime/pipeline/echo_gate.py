@@ -103,7 +103,7 @@ class EchoGateManager:
         # Settling 중: 정상 발화 에너지만 VAD에 전달 (에코 이미 감쇠, 200 RMS로 충분)
         return audio_rms > settings.echo_settling_rms_threshold
 
-    def pre_activate(self, timeout_s: float = 5.0) -> None:
+    def pre_activate(self, timeout_s: float | None = None) -> None:
         """User audio commit 시 선제적 echo gate 활성화.
 
         TTS 응답이 예상될 때 미리 echo window를 열어
@@ -111,7 +111,20 @@ class EchoGateManager:
 
         - on_tts_chunk()이 호출되면 watchdog 자동 취소 (정상 흐름)
         - timeout_s 내에 TTS가 도착하지 않으면 자동 해제 (safety)
+
+        ⚠️ 수신자가 이미 발화 중이면 열지 않는다. 아직 보내지도 않은 TTS의
+        에코일 수 없기 때문이다(인과적으로 불가능) — 그런데도 창을 열면 진행 중인
+        사람의 발화에 침묵을 주입해 통째로 죽인다. 실측(2026-07-19 통화):
+        08:10:38 수신자 발화 시작 → 08:10:39 에코창 활성 → 그 통화의 수신자측
+        번역 0건. Session A가 말할수록 수신자가 더 안 들리는 구조였다.
         """
+        if timeout_s is None:
+            timeout_s = settings.echo_pre_activate_timeout_s
+        if self._local_vad is not None and self._local_vad.is_speaking:
+            logger.info(
+                "Pre-activate skipped — 수신자가 이미 발화 중 (진행 중 발화 보호)"
+            )
+            return
         self._activate()
         if self._pre_activate_timeout and not self._pre_activate_timeout.done():
             self._pre_activate_timeout.cancel()

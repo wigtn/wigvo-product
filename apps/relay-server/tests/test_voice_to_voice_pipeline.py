@@ -517,10 +517,15 @@ class TestVoiceToVoiceTwilioAudio:
 
     @pytest.mark.asyncio
     async def test_local_vad_echo_suppressed_sends_silence(self):
-        """echo_gate.is_suppressing=True → 발화 중이어도 silence(0xFF) 전송."""
+        """echo_gate.is_suppressing=True → 발화 중이어도 silence(0xFF) 전송.
+
+        단, 발화가 에코창보다 **먼저** 시작된 경우는 예외다(인과적으로 에코 아님).
+        여기서는 시작 시각이 없는 경우 = 기존 억제 동작을 검증한다.
+        """
         router = _make_router_with_local_vad()
         router.session_b.send_recipient_audio = AsyncMock()
         router.local_vad.is_speaking = True
+        router.local_vad.speech_started_at = 0.0  # 발화 시작 시각 없음 → 억제 유지
         router.echo_gate.in_echo_window = True  # is_suppressing = True
 
         audio = bytes([0xFE] * 160)  # 저에너지 (echo gate에서 silence로 변환)
@@ -531,6 +536,27 @@ class TestVoiceToVoiceTwilioAudio:
         sent_bytes = base64.b64decode(sent_b64)
         # vad_suppressed=True이므로 silence(0xFF) 전송
         assert all(b == 0xFF for b in sent_bytes)
+
+    @pytest.mark.asyncio
+    async def test_speech_predating_echo_window_is_not_silenced(self):
+        """TTS 재생 중 barge-in — 창보다 먼저 시작된 발화는 원본이 전달된다.
+
+        실측(2026-07-19): 수신자 발화 시작 1초 뒤 에코창이 열려 발화가 잘렸고
+        그 통화의 수신자측 번역이 0건이었다.
+        """
+        import time as _time
+
+        router = _make_router_with_local_vad()
+        router.session_b.send_recipient_audio = AsyncMock()
+        router.local_vad.is_speaking = True
+        router.local_vad.speech_started_at = _time.time() - 1.0  # 창보다 먼저 시작
+        router.echo_gate._activate()  # 그 뒤에 창이 열림
+
+        audio = bytes([0xFE] * 160)
+        await router.handle_twilio_audio(audio)
+
+        sent = base64.b64decode(router.session_b.send_recipient_audio.call_args[0][0])
+        assert sent == audio, "진행 중이던 발화가 침묵으로 대체되면 안 된다"
 
     @pytest.mark.asyncio
     async def test_energy_gate_drops_silence(self):

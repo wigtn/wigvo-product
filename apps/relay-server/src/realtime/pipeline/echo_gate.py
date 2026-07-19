@@ -67,6 +67,9 @@ class EchoGateManager:
         self._tts_total_bytes: int = 0
         self._pre_activate_timeout: asyncio.Task | None = None
         self._first_breakthrough_absorbed: bool = False
+        # 에코창이 열린 시각 — 이보다 먼저 시작된 발화는 이 TTS의 에코일 수 없다
+        self._echo_window_opened_at: float = 0.0
+        self._preexisting_speech_logged: bool = False
 
     # --- Public properties ---
 
@@ -81,7 +84,15 @@ class EchoGateManager:
 
     @property
     def is_suppressing(self) -> bool:
-        """VAD를 억제해야 하는지. echo window 중 또는 settling 중이면 True."""
+        """VAD를 억제해야 하는지. echo window 중 또는 settling 중이면 True.
+
+        예외: 발화가 echo window보다 먼저 시작됐다면 그 소리는 이 TTS의 에코일 수
+        없으므로(인과) 억제하지 않는다. filter_audio와 파이프라인이 각각 억제를
+        결정하므로 두 경로가 같은 불변식을 보도록 여기서 판정한다 — 한쪽만 고치면
+        다른 쪽이 침묵으로 덮어쓴다.
+        """
+        if self._in_echo_window and self._predates_echo_window():
+            return False
         return self._in_echo_window or time.time() < self._settling_until
 
     # --- Public methods ---
@@ -118,12 +129,9 @@ class EchoGateManager:
         08:10:38 수신자 발화 시작 → 08:10:39 에코창 활성 → 그 통화의 수신자측
         번역 0건. Session A가 말할수록 수신자가 더 안 들리는 구조였다.
 
-        이 검사가 막지 못하는 경로 (알려진 한계):
-          - 이미 열려 있는 echo window: TTS 재생 중 수신자가 끼어들면 여기로 오지
-            않으므로 여전히 억제된다(기존 first-breakthrough / RMS 돌파에만 의존).
-          - 경쟁: is_speaking을 읽은 직후 발화가 시작되면 그 발화는 억제된다.
-        근본 해결은 '발화 시작 시각 < TTS 시작 시각이면 억제하지 않는다'는 시간
-        기반 불변식이며, 에코 누출 재측정과 함께 별도로 다룬다.
+        이 검사는 '창을 아예 열지 않는' 빠른 경로다. 창이 이미 열려 있거나
+        판독 직후 발화가 시작된 경우는 filter_audio의 시간 불변식
+        (_predates_echo_window)이 프레임 단위로 처리한다.
         """
         if self._local_vad is not None and self._local_vad.is_speaking:
             logger.info(
@@ -207,6 +215,13 @@ class EchoGateManager:
         """수신자 발화 감지 시 호출 — echo window 즉시 해제."""
         self._deactivate()
 
+    def _predates_echo_window(self) -> bool:
+        """현재 발화가 에코창보다 먼저 시작됐는가 (인과적으로 에코 아님)."""
+        if self._local_vad is None:
+            return False
+        started = self._local_vad.speech_started_at
+        return started > 0.0 and started < self._echo_window_opened_at
+
     def filter_audio(self, audio_bytes: bytes) -> bytes:
         """Twilio 오디오를 필터링한다.
 
@@ -218,6 +233,15 @@ class EchoGateManager:
         게이트 비활성(_enabled=False)이면 항상 원본 그대로 전달(방어적 가드).
         """
         if not self._enabled:
+            return audio_bytes
+        if self._in_echo_window and self._predates_echo_window():
+            # 이 발화는 에코창이 열리기 전에 시작됐다 → 인과적으로 이 TTS의
+            # 에코일 수 없다. 억제하면 진행 중인 사람의 발화를 죽인다.
+            if not self._preexisting_speech_logged:
+                self._preexisting_speech_logged = True
+                logger.info(
+                    "Echo window bypassed — 발화가 창보다 먼저 시작됨 (진행 중 발화 보호)"
+                )
             return audio_bytes
         if self._in_echo_window:
             rms = _ulaw_rms(audio_bytes)
@@ -288,6 +312,8 @@ class EchoGateManager:
         if not self._enabled:
             return
         if not self._in_echo_window:
+            self._echo_window_opened_at = time.time()
+            self._preexisting_speech_logged = False
             logger.info("Echo window activated — silence injection for Session B input")
             self._call_metrics.echo_suppressions += 1
             self._first_breakthrough_absorbed = False

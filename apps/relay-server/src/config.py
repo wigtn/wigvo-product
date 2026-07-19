@@ -212,6 +212,10 @@ class Settings(BaseSettings):
     # 수신자 음성은 침묵으로 대체되므로, TTS가 끝내 오지 않으면 그만큼 수신자가
     # 통째로 차단된다. 실측상 TTS는 1~2초 내 도착하므로 5초는 과했다.
     echo_pre_activate_timeout_s: float = 2.5
+    # 창보다 먼저 시작된 발화를 에코 억제에서 면제해 주는 최대 시간. VAD가
+    # SPEAKING에 고정되면(stuck) 면제가 무한히 이어져 에코 억제가 통째로
+    # 무력화되므로 상한을 둔다. 정상 발화는 이 시간을 넘기지 않는다.
+    echo_preexisting_speech_max_s: float = 12.0
     echo_settling_min_s: float = 0.5          # 최소 settling (짧은 TTS)
     echo_settling_max_s: float = 1.5          # 최대 settling (기존 3.0→1.5)
     echo_settling_tts_ratio: float = 0.3      # settling = TTS길이 × ratio, [min, max] clamp

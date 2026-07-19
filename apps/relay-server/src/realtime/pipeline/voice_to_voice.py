@@ -358,6 +358,8 @@ class VoiceToVoicePipeline(BasePipeline):
             return
         # 선제적 Echo Gate 활성화: commit → TTS 생성(1-2s) 사이 에코 누출 방지
         # 첫 발화 시 수신자 전화기 AEC 미적응으로 에코가 Session B로 누출하는 문제 차단
+        # 이 커밋의 입력 에너지를 턴 메타데이터로 남긴다 (생성 환각 판별용)
+        self.session_a.note_commit_energy(peak)
         self.echo_gate.pre_activate()
         await self._app_ws_send(
             WsMessage(

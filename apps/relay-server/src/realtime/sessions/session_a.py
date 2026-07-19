@@ -105,6 +105,10 @@ class SessionAHandler:
         # "Thank you." → "일단 보기만 하려고 하는데요." 같은 엉뚱한 쌍이
         # Langfuse에 기록됐고, 오역 채점이 통째로 무효가 됐다.
         self._pending_user_stt: deque[tuple[float, str]] = deque(maxlen=8)
+        # 커밋 시점의 입력 오디오 피크 RMS. 원문 STT가 없는 턴(fallback)이
+        # 'STT가 실패한 것'인지 '입력이 없는데 모델이 말한 것(생성 환각)'인지
+        # 구분하는 유일한 단서다.
+        self._pending_commit_peak: deque[tuple[float, float]] = deque(maxlen=8)
         # 시스템 생성 메시지 (첫 인사말 등) — transcript에 role="assistant"로 저장
         self._system_message_pending: bool = False
 
@@ -199,6 +203,19 @@ class SessionAHandler:
     def mark_user_input(self) -> None:
         """User 입력 시점을 기록한다 (Text 모드에서 파이프라인이 호출)."""
         self._user_input_at = time.time()
+
+    def note_commit_energy(self, peak_rms: float) -> None:
+        """파이프라인이 오디오를 커밋할 때의 피크 RMS를 기록한다."""
+        self._pending_commit_peak.append((time.time(), peak_rms))
+
+    def _take_commit_peak(self) -> float | None:
+        """이 번역에 대응하는 입력 피크 RMS (없으면 None)."""
+        cutoff = time.time() - _STT_PAIR_MAX_AGE_S
+        while self._pending_commit_peak and self._pending_commit_peak[0][0] < cutoff:
+            self._pending_commit_peak.popleft()
+        if not self._pending_commit_peak:
+            return None
+        return self._pending_commit_peak.popleft()[1]
 
     def _take_user_stt(self) -> str:
         """번역 하나에 대응하는 원문을 대기열에서 꺼낸다 (FIFO).
@@ -355,6 +372,7 @@ class SessionAHandler:
             else:
                 # User 발화 → 번역 (원문은 대기열에서 순서대로 하나 꺼낸다)
                 paired_original = self._take_user_stt()
+                commit_peak = self._take_commit_peak()
                 self._call.transcript_bilingual.append(
                     TranscriptEntry(
                         role="user",
@@ -377,6 +395,8 @@ class SessionAHandler:
                     "stages": {
                         "guardrail_level": guardrail_level,
                         "stt_source": "caller_stt" if paired_original else "translation_fallback",
+                        # 원문이 없을 때 이 값이 낮으면 '입력 없이 생성된 발화'다
+                        "input_peak_rms": round(commit_peak) if commit_peak is not None else None,
                     },
                 }
 

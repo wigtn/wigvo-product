@@ -27,25 +27,25 @@ const HIGHPASS_FREQUENCY_HZ = 100;
 // "너무 민감함, 멀리서 사람이 말해도 그게 다 들어감"(2026-07-19).
 // 게인을 크게 주면 원거리 음성이 서버 커밋 게이트를 그대로 통과한다.
 // 따라서 게인은 '녹음 레벨이 낮은 마이크 보정' 수준으로만 남긴다.
-// Chunk-level EMA tracking, gain clamped to [1, 8]. NOTE: measured on real
-// far-field corpora this chain is WER-neutral — see FARFIELD_HARNESS.md before
-// claiming an accuracy benefit.
+// 청크 단위 EMA 추적, 게인은 [1, AGC_MAX_GAIN]으로 클램프한다.
 const AGC_TARGET_RMS = 0.05;
 // 8배는 먼 목소리까지 발화 수준으로 끌어올려 게이트를 무력화했다.
 // 마이크 레벨 편차 보정에 필요한 최소한만 남긴다.
 const AGC_MAX_GAIN = 2;
 const AGC_LEVEL_EMA = 0.9; // previous-level weight per 100ms chunk
-// Speech gate: chunks below this RMS pass through untouched. Without it the
-// level EMA sinks to its floor during pauses, so the next quiet chunk gets max
-// gain — which lifts room babble to speech level, hides the silence the VAD
-// needs to close a segment, and merges neighbouring utterances into one commit
-// that carries the other talkers into STT. The merge is reproducible in the
-// synthetic harness; on real far-field corpora (AMI, LibriSpeech+measured RIR)
-// the gate is WER-neutral, so it is kept as a safety property of the AGC rather
-// than an accuracy win. See FARFIELD_HARNESS.md for the full numbers.
+// 증폭 대상 게이트. 이 값 미만 청크는 손대지 않는다.
+// 두 가지 역할을 겸한다.
+//  1) 무음 구간에서 레벨 EMA가 바닥까지 내려가 다음 청크에 최대 게인이 붙는 것을
+//     막는다 — 그러면 주변 웅성거림이 발화 수준으로 올라가고, VAD가 세그먼트를
+//     끊는 데 필요한 무음이 사라져 옆사람 말이 같은 커밋에 실린다.
+//  2) 원거리 음성을 애초에 증폭 대상에서 뺀다(근접 수음 목표).
 // 이 값보다 작은 청크는 증폭하지 않는다. 원거리 음성을 발화 수준으로
 // 끌어올리지 않도록 근접 발화 대역만 대상으로 삼는다.
-const AGC_GATE_RMS = 0.02;
+// ClientVAD speechThreshold(0.035)와 연동한다. 게이트를 임계/게인보다 낮게 두면
+// 원거리 청크가 증폭 후 임계를 넘어 통과하므로(0.0175×2 = 0.035), 그 경계를
+// 넘지 않도록 임계와 같은 값으로 맞춘다 — 증폭은 '이미 발화로 인정된 크기'에만
+// 적용되고, 판정 자체를 뒤집지 않는다.
+const AGC_GATE_RMS = 0.035;
 
 interface SpeexAssets {
   SpeexWorkletNode: typeof SpeexWorkletNode;

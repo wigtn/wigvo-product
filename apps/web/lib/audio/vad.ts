@@ -42,7 +42,11 @@ const DEFAULT_VAD_CONFIG: VadConfig = {
   // 근접 발화만 받도록 상향(2026-07-19). 이전 0.015는 원거리 대화까지
   // 발화로 인식했다 — 응대자 본인이 아닌 주변 사람 목소리가 통역에 섞였다.
   speechThreshold: 0.035,
-  silenceThreshold: 0.008,
+  // speechThreshold와 함께 올린다. 진입만 올리면 간격이 4.4배로 벌어져,
+  // 그 사이(0.008~0.035)에 머무는 입력에서 SPEAKING이 풀리지 않는다 —
+  // 본인이 목소리를 낮추거나 문장 끝을 흐리는 구간이 여기 해당하고,
+  // 그동안 주변 소리도 같은 세그먼트에 묶인다.
+  silenceThreshold: 0.018,
   speechOnsetDelay: 150,
   speechEndDelay: 350,
   sampleRate: 16000,

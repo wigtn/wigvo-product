@@ -189,16 +189,36 @@ def fetch_turns(limit: int) -> list[dict]:
             continue  # 부하/개발 트래픽 제외
         src, tr = o.get("input"), o.get("output")
         if isinstance(src, str) and isinstance(tr, str) and src.strip() and tr.strip():
-            turns.append({"id": o["id"], "source": src, "translation": tr,
-                          "direction": (o.get("metadata") or {}).get("direction", "")})
+            meta = o.get("metadata") or {}
+            stt_source = meta.get("stage.stt_source") or meta.get("stt_source") or ""
+            turns.append({
+                "id": o["id"], "source": src, "translation": tr,
+                "direction": meta.get("direction", ""),
+                # 원문 STT가 없어 번역문으로 대체된 턴. 원문==번역이라 채점이
+                # 무의미하고, 동시에 '아무도 말하지 않았는데 모델이 발화한' 생성
+                # 환각의 후보이기도 하다 — 별도 지표로 센다.
+                "is_fallback": stt_source == "translation_fallback",
+            })
     return turns
 
 
 def run_production(limit: int) -> None:
-    turns = fetch_turns(limit)
-    print(f"채점 대상 {len(turns)}턴 (environment=production)\n")
+    all_turns = fetch_turns(limit)
+    fallback = [t for t in all_turns if t["is_fallback"]]
+    turns = [t for t in all_turns if not t["is_fallback"]]
+
+    print(f"수집 {len(all_turns)}턴 (environment=production)")
+    print(f"  채점 대상        {len(turns)}턴")
+    print(f"  원문 없음(fallback) {len(fallback)}턴 — 채점 제외\n")
+    if fallback:
+        print("── ⚠️ 원문 STT 없이 생성된 발화 (생성 환각 후보) ──")
+        print("   페어링 수정 배포 이후에도 남는다면 '아무도 말하지 않은 문장을")
+        print("   시스템이 상대에게 말한 것'이다.")
+        for t in fallback[:8]:
+            print(f"   [{t['direction'][:16]}] {t['translation'][:60]}")
+        print()
     if not turns:
-        print("  대상이 없다. 실사용 통화가 쌓여야 한다.")
+        print("  채점 대상이 없다. 실사용 통화가 쌓여야 한다.")
         return
     with ThreadPoolExecutor(max_workers=8) as ex:
         verdicts = list(ex.map(lambda t: judge(t["source"], t["translation"], t["direction"]), turns))

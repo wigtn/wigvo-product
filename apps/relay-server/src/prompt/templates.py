@@ -12,7 +12,13 @@ POLITENESS_RULES = {
     ),
     ("ko", "en"): (
         "Use polite, professional English. "
-        "Use 'sir', 'ma'am' when appropriate."
+        # 한국어는 성별을 거의 표시하지 않는다. 'sir'/'ma'am'을 쓰라고 지시하면
+        # 모델이 목소리로 성별을 추측해 원문에 없는 정보를 덧붙이고, 틀리면
+        # 상대를 잘못된 성별로 부르게 된다(의료·행정 창구에서 특히 민감).
+        # 실측(2026-07-19): "잘 들리시나요?" → "Ma'am, can you hear me well?"
+        "Do NOT add gendered address such as 'sir' or 'ma'am' unless the "
+        "source utterance itself identifies the person's gender. "
+        "Prefer neutral phrasing."
     ),
 }
 

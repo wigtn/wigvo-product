@@ -237,6 +237,15 @@ class Settings(BaseSettings):
     # 들어가 할루시네이션을 만드는 것을 억제 (실발화는 RMS breakthrough로 통과). 0=끔.
     inbound_handoff_settling_s: float = 1.5
 
+    # Session B: speech_started 후 speech_stopped이 오지 않을 때의 안전장치.
+    # 사람은 20초 넘게 이어 말하기도 하므로, 이 시간이 지났다고 해서 곧바로
+    # 'VAD 고장'으로 단정하지 않는다 — 아래 liveness로 실제 원인을 가른다.
+    session_b_silence_timeout_s: float = 15.0
+    # VAD가 이 시간 안에 프레임을 처리했다면 '살아있다' = 실제로 길게 말하는 중.
+    # 그보다 오래 멈춰 있으면 오디오가 끊겨 상태만 얼어붙은 것이다.
+    # 프레임 간격(20ms)의 수십 배로 두어 일시적 지연에 흔들리지 않게 한다.
+    session_b_vad_liveness_window_s: float = 1.0
+
     # Session A(웹/기관 응대) 커밋 에너지 게이트 — 근접 발화만 통과시킨다.
     #
     # 250은 사실상 무력했다: 2026-07-19 통화들에서 발동 0건이고, 실측 RMS 분포는

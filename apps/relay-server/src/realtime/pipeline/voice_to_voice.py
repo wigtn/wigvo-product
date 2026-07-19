@@ -187,6 +187,11 @@ class VoiceToVoicePipeline(BasePipeline):
         self._energy_gate_passed: bool = False
 
         # Echo Gate Manager (TTS 에코 차단)
+        # 타임아웃 시 '긴 발화'와 'VAD 고착'을 가를 수 있도록 유휴 시간을 노출한다
+        if self.local_vad is not None:
+            self.session_b.set_vad_liveness_probe(
+                lambda: self.local_vad.seconds_since_last_frame
+            )
         self.echo_gate = EchoGateManager(
             session_b=self.session_b,
             local_vad=self.local_vad,

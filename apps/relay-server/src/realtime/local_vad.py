@@ -178,6 +178,10 @@ class LocalVAD:
         self._state = _VadState.SILENCE
         self._speech_count = 0
         self._speech_started_at: float = 0.0
+        # 마지막으로 프레임을 처리한 시각. VAD가 SPEAKING에 머물 때 이 값이
+        # 갱신되고 있으면 '실제로 길게 말하는 중'이고, 멈춰 있으면 '오디오가
+        # 끊겨 상태만 얼어붙은' 것이다 — 에너지 임계 없이 둘을 가른다.
+        self._last_processed_at: float = 0.0
         self._silence_count = 0
 
         # Frame adapter buffer: 20ms (160→320 upsampled) → 32ms (512 samples @ 16kHz)
@@ -212,6 +216,13 @@ class LocalVAD:
         return self._state == _VadState.SPEAKING
 
     @property
+    def seconds_since_last_frame(self) -> float:
+        """마지막 프레임 처리 이후 경과 시간. 한 번도 없었으면 무한대."""
+        if self._last_processed_at <= 0.0:
+            return float("inf")
+        return time.time() - self._last_processed_at
+
+    @property
     def speech_started_at(self) -> float:
         """현재 발화가 SPEAKING으로 전환된 시각 (epoch). 미발화면 0.0.
 
@@ -234,6 +245,7 @@ class LocalVAD:
         Args:
             audio: g711_ulaw 오디오 바이트 (20ms = 160 samples @ 8kHz)
         """
+        self._last_processed_at = time.time()
         if self._model is None:
             return
 

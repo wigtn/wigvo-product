@@ -116,6 +116,31 @@ class TestSilenceTimeoutAntiHallucination:
         assert handler._speech_stopped_at > 0
 
     @pytest.mark.asyncio
+    @pytest.mark.asyncio
+    async def test_timeout_with_live_vad_translates_instead_of_discarding(self):
+        """타임아웃이라도 VAD가 살아있으면 긴 발화이므로 번역한다.
+
+        실측(2026-07-19 16:07): 수신자가 22.3초 이어 말했는데 15초 타임아웃이
+        '고장'으로 단정해 통째로 버렸고, 상대가 "방금 말한 거 왜 번역 안 해?"라고
+        물었다. 사람은 15초 넘게 말할 수 있다 — 에너지 임계가 아니라 VAD가
+        프레임을 계속 처리 중인지로 가른다.
+        """
+        handler = _make_handler(use_local_vad=True)
+        handler._speech_started_at = time.time() - 15.0
+        handler._silence_timeout_s = 0.01
+        handler.set_vad_liveness_probe(lambda: 0.0)  # 방금 프레임 처리 = 살아있음
+
+        calls = []
+        handler.session.clear_input_buffer = AsyncMock(side_effect=lambda: calls.append("clear"))
+        handler.session.commit_audio_only = AsyncMock(side_effect=lambda: calls.append("commit"))
+        handler.session.create_response = AsyncMock()
+
+        await handler._silence_timeout_handler()
+
+        assert "clear" not in calls, "실제 발화를 버리면 안 된다"
+        assert "commit" in calls, "지금까지의 발화를 커밋해 번역해야 한다"
+
+    @pytest.mark.asyncio
     async def test_timeout_discards_audio_without_producing_a_turn(self):
         """Silence timeout은 누적 오디오를 버리고 턴을 만들지 않는다.
 
@@ -128,6 +153,7 @@ class TestSilenceTimeoutAntiHallucination:
         handler = _make_handler(use_local_vad=True)
         handler._speech_started_at = time.time() - 15.0
         handler._silence_timeout_s = 0.01
+        handler.set_vad_liveness_probe(lambda: 99.0)  # 오래 멈춤 = 상태 고착
 
         call_order = []
         handler.session.clear_input_buffer = AsyncMock(

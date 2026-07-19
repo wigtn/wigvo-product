@@ -329,7 +329,7 @@ class SessionBHandler:
         # Silence timeout: speech_started 후 N초 안에 speech_stopped이 안 오면 강제 response
         # 배경소음이 VAD를 영구 "발화 중" 상태로 만드는 문제 방지
         self._silence_timeout_task: asyncio.Task | None = None
-        self._silence_timeout_s: float = 15.0
+        self._silence_timeout_s: float = settings.session_b_silence_timeout_s
         self._timeout_forced: bool = False  # timeout이 response를 강제 생성했는지 여부
 
         # 최소 발화 길이 필터: 너무 짧은 segment는 노이즈로 간주
@@ -363,6 +363,10 @@ class SessionBHandler:
         # 0이면 모델에게 줄 입력이 없다는 뜻이므로 응답을 요청하지 않는다 —
         # 요청하면 모델이 무에서 발화를 지어낸다(생성 환각).
         self._uncommitted_audio_bytes: int = 0
+        # VAD가 마지막 프레임을 처리한 뒤 경과 시간을 돌려주는 콜러블.
+        # 타임아웃 시 '긴 발화'와 '상태 고착'을 가르는 데 쓴다. 미주입이면
+        # 판별 불가로 보고 기존(보수적) 동작을 유지한다.
+        self._vad_idle_seconds: Callable[[], float] | None = None
 
         # Fix 1: 로컬 오디오 버퍼 (speech-only commit용)
         self._local_audio_frames: deque[str] = deque()  # base64 g711_ulaw frames
@@ -492,6 +496,21 @@ class SessionBHandler:
         # OpenAI에도 실시간 전달 (기존 동작 유지)
         self._uncommitted_audio_bytes += len(audio_b64)
         await self.session.send_audio(audio_b64)
+
+    def set_vad_liveness_probe(self, probe: "Callable[[], float]") -> None:
+        """VAD 유휴 시간 조회 함수를 주입한다 (파이프라인이 호출)."""
+        self._vad_idle_seconds = probe
+
+    def _vad_is_alive(self) -> bool:
+        """VAD가 프레임을 계속 처리 중인가.
+
+        타임아웃이 걸렸을 때 원인을 가른다 — 에너지 임계로 판단하지 않는다.
+          살아있음 = 사람이 실제로 길게 말하는 중 (실측 22.3초 발화 존재)
+          멈춰있음 = 오디오가 끊겨 VAD 상태만 SPEAKING으로 얼어붙음
+        """
+        if self._vad_idle_seconds is None:
+            return False
+        return self._vad_idle_seconds() <= settings.session_b_vad_liveness_window_s
 
     def _has_input_to_translate(self) -> bool:
         """모델에게 줄 오디오가 실제로 있는가.
@@ -1313,19 +1332,29 @@ class SessionBHandler:
             else:
                 # --- 기존 Realtime API 경로 ---
                 if self._use_local_vad:
-                    # 15초 축적된 노이즈를 버린다(할루시네이션 방지). 버린 뒤에는
-                    # 번역할 입력이 남지 않으므로 응답을 요청하지 않는다 —
-                    # 요청하면 모델이 무에서 발화를 지어내 상대에게 송출된다.
-                    # 실측(2026-07-19): 빈 버퍼 커밋 오류 직후 "시청하려면 2번을
-                    # 눌러주십시오"가 생성됐다.
-                    await self.session.clear_input_buffer()
-                    self._uncommitted_audio_bytes = 0
-                    logger.warning(
-                        "[SessionB] Timeout: 누적 오디오 폐기 — 응답 생성 건너뜀 (생성 환각 방지)"
-                    )
-                    self._is_response_active = False
-                    self._response_done_event.set()
-                    return
+                    # 타임아웃이 걸렸다고 곧바로 '고장'으로 단정하지 않는다.
+                    # 실측(2026-07-19): 수신자가 22.3초 이어 말했는데 15초에
+                    # 고장으로 보고 버려, 상대가 "방금 말한 거 왜 번역 안 해?"라고
+                    # 물었다. 사람은 15초 넘게 말할 수 있다.
+                    if self._vad_is_alive():
+                        # VAD가 프레임을 계속 처리 중 = 실제로 길게 말하는 중.
+                        # 버리지 말고 지금까지의 발화를 커밋해 번역한다.
+                        logger.info(
+                            "[SessionB] Timeout: VAD 활성 — 긴 발화로 보고 커밋해 번역"
+                        )
+                        await self.session.commit_audio_only()
+                        self._uncommitted_audio_bytes = 0
+                    else:
+                        # VAD가 멈춰 있음 = 오디오가 끊겨 상태만 얼어붙음.
+                        # 이때 응답을 요청하면 모델이 무에서 발화를 지어낸다.
+                        await self.session.clear_input_buffer()
+                        self._uncommitted_audio_bytes = 0
+                        logger.warning(
+                            "[SessionB] Timeout: VAD 정지 — 누적 오디오 폐기, 응답 생성 건너뜀"
+                        )
+                        self._is_response_active = False
+                        self._response_done_event.set()
+                        return
 
                 self._stt_check_done.clear()  # STT 블록리스트 판정 완료까지 번역 대기
                 self._is_response_active = True

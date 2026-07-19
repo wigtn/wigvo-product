@@ -57,6 +57,23 @@ Session A(응대측)·Session B(발신측) 발화마다 1개.
 | `inbound.pickup` | claim→bootstrap→CONNECTED 전체 |
 | `inbound.dual_session.connect` | 인바운드 세션 생성 |
 
+## 오역 측정 (`scripts/translation_quality_eval.py`)
+
+턴의 `input`(원문)/`output`(번역)을 LLM judge로 채점해 **의미 보존 여부**를 잰다.
+사용자 피해가 가장 큰 실패(오역)를 겨냥하며, 사람 라벨 없이 프로덕션 데이터에
+바로 적용된다.
+
+**judge를 먼저 검증하고 쓸 것** — `--validate`로 정답을 아는 사례를 돌린다.
+검증 안 된 측정도구로 결론을 내면 far-field 합성 하네스와 같은 실수를 반복한다.
+
+| 지표 | 검증 결과(n=11) | 사용 |
+|---|---|---|
+| 문제 유무 + 심각도 | 11/11 | **주 지표** |
+| 카테고리 세분 | 7/11 | 참고용 — 카테고리 간 의미가 겹쳐 흔들림 |
+
+⚠️ 번역이 gpt-4o 계열 산출물인데 judge도 같은 계열이라 **자기선호 편향** 가능성이
+있다. 추세를 근거로 삼기 전에 다른 계열로 교차검증할 것.
+
 ## MEGA Loop 연결
 - 소비 단위 = **턴 generation** (`input`/`output` + `latency.*` + trace 루트의
   `flow`/`tenant_id`/언어쌍) — 번역 품질 평가 페어로 바로 사용 가능.

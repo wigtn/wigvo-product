@@ -237,6 +237,22 @@ class Settings(BaseSettings):
     # 들어가 할루시네이션을 만드는 것을 억제 (실발화는 RMS breakthrough로 통과). 0=끔.
     inbound_handoff_settling_s: float = 1.5
 
+    # 화자 식별 — 응대자 본인이 아닌 발화(옆자리 대화·재생 음성)를 커밋에서 뺀다.
+    # 레벨 기반 게이트가 실패한 자리를 대신한다(절대 임계 250·2000 모두 발동 0건).
+    speaker_id_enforce: bool = True
+    # 이 유사도 미만이면 타인으로 본다. 실측 누적:
+    #   본인 0.379~0.754 (현행 클러스터 평균 기준에서는 최소 0.585)
+    #   타인 0.007~0.174
+    # 0.30은 본인 여유 1.26배 / 타인 여유 1.72배. 잘못 차단하면 발화가 조용히
+    # 사라져 사용자가 즉시 알아채므로 보수적으로 잡는다.
+    speaker_id_min_similarity: float = 0.30
+    # 차단 비율이 이 값을 넘으면 그 통화의 차단을 자동으로 끈다.
+    # 등록이 오염되면(배경음이 응대자로 선출) 본인 발화가 전부 차단되는데,
+    # 실측(통화 B)에서 그 상황이 재현됐다 — 조용한 전면 차단만은 막는다.
+    speaker_id_abort_block_ratio: float = 0.5
+    # 위 비율을 적용하기 전 최소 판정 수 (초반 우연으로 꺼지지 않도록).
+    speaker_id_abort_min_scored: int = 4
+
     # Session B: speech_started 후 speech_stopped이 오지 않을 때의 안전장치.
     # 사람은 20초 넘게 이어 말하기도 하므로, 이 시간이 지났다고 해서 곧바로
     # 'VAD 고장'으로 단정하지 않는다 — 아래 liveness로 실제 원인을 가른다.

@@ -70,6 +70,7 @@ class EchoGateManager:
         # 에코창이 열린 시각 — 이보다 먼저 시작된 발화는 이 TTS의 에코일 수 없다
         self._echo_window_opened_at: float = 0.0
         self._preexisting_speech_logged: bool = False
+        self._preexisting_expired_logged: bool = False
 
     # --- Public properties ---
 
@@ -100,14 +101,21 @@ class EchoGateManager:
     def should_process_vad(self, audio_rms: float) -> bool:
         """Settling 중 VAD 처리 여부를 결정한다 (RMS pre-gate).
 
-        Echo window 중: False (항상 억제)
+        Echo window 중: False (억제) — 단, 발화가 창보다 먼저 시작됐으면 True
         Settling 중: RMS > echo_settling_rms_threshold(200)이면 True (VAD 처리 허용)
         Normal: True
 
         NOTE: True를 반환해도 settling을 break하지 않는다.
         Settling은 LocalVAD가 SPEAKING으로 전환 → break_settling() 호출 시에만 해제.
+
+        ⚠️ 여기서 False를 반환하면 VAD가 오디오를 아예 처리하지 못해 **상태가
+        그대로 얼어붙는다**. SPEAKING 중에 창이 열리면 speech_stopped을 영원히
+        내지 못하고 15초 silence timeout까지 간다. 실측(2026-07-19):
+        08:55:45 발화 시작 → 창들이 반복 개방 → 08:56:00 "VAD stuck" →
+        빈 버퍼 커밋 오류 → 그 턴 e2e 17,982ms.
+        따라서 filter_audio·is_suppressing과 **같은 인과 불변식**을 적용한다.
         """
-        if self._in_echo_window:
+        if self._in_echo_window and not self._predates_echo_window():
             return False
         if time.time() >= self._settling_until:
             return True  # settling 만료
@@ -216,11 +224,25 @@ class EchoGateManager:
         self._deactivate()
 
     def _predates_echo_window(self) -> bool:
-        """현재 발화가 에코창보다 먼저 시작됐는가 (인과적으로 에코 아님)."""
+        """현재 발화가 에코창보다 먼저 시작됐는가 (인과적으로 에코 아님).
+
+        상한을 둔다 — VAD가 SPEAKING에 고정되면(stuck) 면제가 무한히 이어져
+        에코 억제가 통째로 무력화된다. 정상 발화는 상한을 넘기지 않는다.
+        """
         if self._local_vad is None:
             return False
         started = self._local_vad.speech_started_at
-        return started > 0.0 and started < self._echo_window_opened_at
+        if not (started > 0.0 and started < self._echo_window_opened_at):
+            return False
+        if time.time() - started > settings.echo_preexisting_speech_max_s:
+            if not self._preexisting_expired_logged:
+                self._preexisting_expired_logged = True
+                logger.warning(
+                    "Pre-existing speech 면제 만료 (%.0fs 초과) — 에코 억제 복귀",
+                    settings.echo_preexisting_speech_max_s,
+                )
+            return False
+        return True
 
     def filter_audio(self, audio_bytes: bytes) -> bytes:
         """Twilio 오디오를 필터링한다.
@@ -314,6 +336,7 @@ class EchoGateManager:
         if not self._in_echo_window:
             self._echo_window_opened_at = time.time()
             self._preexisting_speech_logged = False
+            self._preexisting_expired_logged = False
             logger.info("Echo window activated — silence injection for Session B input")
             self._call_metrics.echo_suppressions += 1
             self._first_breakthrough_absorbed = False

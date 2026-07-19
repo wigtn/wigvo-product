@@ -808,3 +808,60 @@ class TestTemporalInvariant:
         time.sleep(0.01)
         gate._activate()
         assert gate._echo_window_opened_at > first_open
+
+
+class TestVadNotFrozenDuringEchoWindow:
+    """echo window가 VAD 상태를 얼려 speech_stopped을 막지 않아야 한다.
+
+    실측(2026-07-19): 08:55:45 발화 시작 → 창 반복 개방으로 VAD가 SPEAKING에
+    고정 → 08:56:00 "VAD stuck" 15초 타임아웃 → 빈 버퍼 커밋 오류 →
+    그 턴 e2e 17,982ms. 억제 지점 세 곳(filter_audio / is_suppressing /
+    should_process_vad)이 같은 불변식을 봐야 한다.
+    """
+
+    def _make_gate(self, speech_started_at: float):
+        session_b = MagicMock()
+        session_b.clear_input_buffer = AsyncMock()
+        local_vad = MagicMock()
+        local_vad.speech_started_at = speech_started_at
+        local_vad.is_speaking = speech_started_at > 0
+        return EchoGateManager(
+            session_b=session_b,
+            local_vad=local_vad,
+            call_metrics=CallMetrics(),
+            echo_margin_s=0.3,
+            max_echo_window_s=1.0,
+        )
+
+    def test_vad_keeps_processing_when_speech_predates_window(self):
+        """진행 중이던 발화는 창 안에서도 VAD 처리가 계속돼야 종료를 감지한다."""
+        gate = self._make_gate(speech_started_at=time.time() - 1.0)
+        gate._activate()
+        assert gate.should_process_vad(50.0) is True
+
+    def test_vad_suppressed_when_speech_starts_after_window(self):
+        """창 이후 감지된 소리는 에코일 수 있으므로 기존 억제를 유지한다."""
+        gate = self._make_gate(speech_started_at=0.0)
+        gate._activate()
+        gate._local_vad.speech_started_at = time.time()
+        assert gate.should_process_vad(50.0) is False
+
+    def test_all_three_suppression_points_agree(self):
+        """세 경로가 같은 판정을 내야 한다 — 하나만 어긋나면 수정이 무효화된다."""
+        gate = self._make_gate(speech_started_at=time.time() - 1.0)
+        gate._activate()
+        audio = b"\xfe" * 160
+        assert gate.should_process_vad(50.0) is True      # VAD 처리 계속
+        assert gate.is_suppressing is False               # 파이프라인 통과
+        assert gate.filter_audio(audio) == audio          # 원본 전달
+
+    def test_preexisting_exemption_expires(self):
+        """VAD가 stuck이어도 면제가 무한히 이어지면 안 된다 (에코 억제 복귀)."""
+        from src.config import settings
+
+        gate = self._make_gate(
+            speech_started_at=time.time() - (settings.echo_preexisting_speech_max_s + 1)
+        )
+        gate._activate()
+        assert gate.should_process_vad(50.0) is False
+        assert gate.is_suppressing is True

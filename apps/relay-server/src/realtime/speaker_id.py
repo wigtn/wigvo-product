@@ -158,15 +158,25 @@ class SpeakerMatcher:
     #: 같은 화자로 묶는 기준. 실측 분포(같은 화자 0.585~0.754,
     #: 다른 화자 -0.051~0.306)의 사이에서 보수적으로 잡는다.
     SAME_SPEAKER_SIMILARITY = 0.40
-    #: 기준 확정 후 합산 기준. SAME_SPEAKER_SIMILARITY와 값은 같지만 의미가 다르다
-    #: — 이쪽은 '이미 정해진 기준과 같은 사람인가'이고, 저쪽은 '후보끼리 같은
-    #: 사람인가'다. 실측 분포가 더 쌓이면 갈라질 수 있어 별도 상수로 둔다.
-    ENROLL_MIN_SIMILARITY = 0.40
-    ENROLL_SEGMENTS = 5
+    #
+    # 기준 보강(선출 후 통과 발화를 기준에 합산)은 제거했다. 되먹임으로 기준이
+    # 무너진다: 배경음이 섞인 발화는 임베딩이 흐려지는데, 그것을 기준에 합치면
+    # 기준이 '본인'에서 '본인+배경음 평균' 쪽으로 끌려가고, 그러면 다음 본인
+    # 발화의 유사도가 또 떨어져 더 흐린 샘플이 합쳐진다.
+    # 실측(2026-07-19 18:24, 유튜브 틀어놓은 통화)에서 본인 유사도가
+    # 0.628 → 0.530 → 0.604 → 0.460 → 0.392 → 0.301로 단조 하락해
+    # 마지막이 임계 0.30을 0.001 차이로 통과했다 — 한 턴 더 갔으면 본인
+    # 발화가 조용히 잘렸다. 보강 임계를 올려도 방향은 같고 속도만 느려진다.
+    #
+    # 대신 선출을 신뢰한다: 후보 군집 다수결(_elect_reference)이 배경음을
+    # 원천에서 걸러내고, 확정된 기준은 통화 내내 고정된다.
 
     def __init__(self) -> None:
         self._reference: np.ndarray | None = None
         self._enrolled_at: float = 0.0
+        #: 선출된 군집의 크기. 보강을 없앤 뒤로는 선출 시점에 한 번 정해지고
+        #: 이후 변하지 않는다 — '지금까지 등록한 수'가 아니라 '기준을 만든 수'다.
+        #: 트레이스 키(speaker_enroll_count)는 과거 시계열과 이어지도록 유지한다.
         self._enroll_count: int = 0
         #: 기준 확정 전에 모으는 후보 임베딩
         self._candidates: list[np.ndarray] = []
@@ -301,17 +311,10 @@ class SpeakerMatcher:
                     "speaker_backfill": self._backfill}
 
         # --- 기준 확정 후: 유사도 판정 ---
+        # 기준은 선출 시점에 고정하고 이후로는 갱신하지 않는다.
+    # 보강을 제거한 이유는 클래스 상단 SAME_SPEAKER_SIMILARITY 아래 주석 참조.
         similarity = float(np.dot(self._reference, emb))
-        if (self._enroll_count < self.ENROLL_SEGMENTS
-                and similarity >= self.ENROLL_MIN_SIMILARITY):
-            n = self._enroll_count
-            merged = self._reference * n + emb
-            self._reference = merged / (np.linalg.norm(merged) + 1e-9)
-            self._enroll_count = n + 1
-            logger.info("[SpeakerID] 유사도 %.3f — 기준 보강 %d개 (%.0fms)",
-                        similarity, self._enroll_count, elapsed_ms)
-        else:
-            logger.info("[SpeakerID] 유사도 %.3f (%.0fms)", similarity, elapsed_ms)
+        logger.info("[SpeakerID] 유사도 %.3f (%.0fms)", similarity, elapsed_ms)
 
         is_other, block = self._decide(similarity)
 

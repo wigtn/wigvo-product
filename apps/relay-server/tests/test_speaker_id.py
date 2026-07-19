@@ -162,13 +162,36 @@ class TestDeferredClusterEnrollment:
         assert after["speaker_phase"] == "scoring"
         assert after["speaker_similarity"] is not None
 
+    @pytest.mark.asyncio
+    async def test_reference_is_frozen_after_election(self):
+        """선출 후에는 어떤 발화도 기준을 바꾸지 못한다.
+
+        보강을 두면 되먹임으로 기준이 무너진다: 배경음이 섞인 발화가 기준에
+        합쳐지면 기준이 흐려지고, 그러면 다음 본인 발화의 유사도가 떨어져 더
+        흐린 샘플이 합쳐진다. 실측(2026-07-19 18:24)에서 본인 유사도가
+        0.628→0.301로 단조 하락해 임계 0.30을 0.001 차이로 통과했다.
+        """
+        m = SpeakerMatcher()
+        if await m.score(_tone(200)) is None:
+            pytest.skip("모델 미탑재 환경")
+        for _ in range(SpeakerMatcher.CANDIDATE_SEGMENTS):
+            await m.score(_tone(200))
+        assert m.enrolled is True
+
+        frozen = m._reference.copy()
+        # 기준과 비슷한 발화도, 전혀 다른 발화도 기준을 건드리면 안 된다
+        for tone in (200, 200, 900, 1500):
+            await m.score(_tone(tone))
+            assert np.array_equal(m._reference, frozen), (
+                f"{tone}Hz 발화 후 기준이 바뀌었다 — 보강이 되살아났다")
+
 
 class TestEnforcement:
     """차단 판정과 오등록 대비 안전장치.
 
     잘못 차단하면 발화가 조용히 사라지고 사용자가 즉시 알아챈다 —
     실측(2026-07-19): "방금 말한 거 왜 번역 안 해?". 그래서 임계는 보수적으로
-    잡고, 차단이 과반을 넘으면 기준을 못 믿는 것으로 보고 스스로 끈다.
+    잡고, 통과 없이 연속으로 차단되면 기준을 못 믿는 것으로 보고 스스로 끈다.
     """
 
     def _enrolled(self, reference):

@@ -266,7 +266,7 @@ class TestVoiceToVoiceUserAudio:
         router.recovery_a.is_degraded = False
         router.context_manager = MagicMock()
         router.context_manager.inject_context = AsyncMock()
-        router._user_peak_rms = 8000.0  # 근접 발화 수준 (실측 p75≈7300) → 게이트 통과
+        router._user_peak_rms = 8000.0  # 실발화 수준 (실측 p75≈7300) → 게이트 통과
 
         await router.handle_user_audio_commit()
 
@@ -286,7 +286,7 @@ class TestVoiceToVoiceUserAudio:
         router.recovery_a.is_degraded = False
         router.context_manager = MagicMock()
         router.context_manager.inject_context = AsyncMock()
-        router._user_peak_rms = 8000.0  # 근접 발화 수준 (실측 p75≈7300) → 게이트 통과
+        router._user_peak_rms = 8000.0  # 실발화 수준 (실측 p75≈7300) → 게이트 통과
 
         await router.handle_user_audio_commit()
 
@@ -303,7 +303,7 @@ class TestVoiceToVoiceUserAudio:
         router.recovery_a.is_degraded = False
         router.context_manager = MagicMock()
         router.context_manager.inject_context = AsyncMock()
-        router._user_peak_rms = 8000.0  # 근접 발화 수준 (실측 p75≈7300) → 게이트 통과
+        router._user_peak_rms = 8000.0  # 실발화 수준 (실측 p75≈7300) → 게이트 통과
 
         await router.handle_user_audio_commit()
 
@@ -322,7 +322,7 @@ class TestVoiceToVoiceUserAudio:
         router.context_manager.inject_context = AsyncMock()
 
         assert router.echo_gate.in_echo_window is False
-        router._user_peak_rms = 8000.0  # 근접 발화 수준 (실측 p75≈7300) → 게이트 통과
+        router._user_peak_rms = 8000.0  # 실발화 수준 (실측 p75≈7300) → 게이트 통과
 
         await router.handle_user_audio_commit()
 
@@ -332,7 +332,12 @@ class TestVoiceToVoiceUserAudio:
 
     @pytest.mark.asyncio
     async def test_audio_commit_skipped_on_low_energy(self):
-        """저에너지(무음/소음) 세그먼트는 커밋을 스킵하고 입력 버퍼를 비운다."""
+        """무음/소음 세그먼트는 커밋을 스킵하고 입력 버퍼를 비운다.
+
+        이 게이트는 Whisper 무음 할루시네이션만 막는다. 근접/원거리를 가르는
+        일은 화자 식별(SpeakerMatcher)이 맡는다 — 레벨은 두 사람을 가르지
+        못한다(본인이 조용히 말하면 원거리와 같은 값이 나온다).
+        """
         router = _make_router()
         router.call.first_message_sent = True
         router.session_a.commit_user_audio = AsyncMock()
@@ -342,7 +347,7 @@ class TestVoiceToVoiceUserAudio:
         router.recovery_a.is_degraded = False
         router.context_manager = MagicMock()
         router.context_manager.inject_context = AsyncMock()
-        router._user_peak_rms = 900.0  # 원거리 대화 수준 — 근접 임계(2000) 미만
+        router._user_peak_rms = 120.0  # 무음/소음 수준 (실측 p25≈69)
 
         await router.handle_user_audio_commit()
 
@@ -350,6 +355,30 @@ class TestVoiceToVoiceUserAudio:
         router.session_a.clear_user_audio.assert_called_once()
         router.context_manager.inject_context.assert_not_called()
         assert router._user_peak_rms == 0.0  # 커밋 후 리셋
+
+    @pytest.mark.asyncio
+    async def test_quiet_speech_is_not_dropped_by_the_energy_gate(self):
+        """조용한 실발화는 이 게이트에서 잘리면 안 된다.
+
+        임계가 2000이던 시절 실측(2026-07-19 18:24)에서 본인 발화 2건이
+        peak_rms 1915 / 1871로 잘렸다. 앞단에서 버려지면 화자 식별이 그것이
+        본인인지 판단할 기회조차 없다 — 판단은 화자 식별에 맡기고 이 게이트는
+        무음만 거른다.
+        """
+        router = _make_router()
+        router.call.first_message_sent = True
+        router.session_a.commit_user_audio = AsyncMock()
+        router.session_a.clear_user_audio = AsyncMock()
+        router.recovery_a = MagicMock()
+        router.recovery_a.is_recovering = False
+        router.recovery_a.is_degraded = False
+        router.context_manager = MagicMock()
+        router.context_manager.inject_context = AsyncMock()
+        router._user_peak_rms = 1871.0  # 실측에서 잘렸던 본인 발화
+
+        await router.handle_user_audio_commit()
+
+        router.session_a.commit_user_audio.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_audio_commit_skipped_during_recovery(self):

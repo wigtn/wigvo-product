@@ -26,6 +26,13 @@ const HIGHPASS_FREQUENCY_HZ = 100;
 const AGC_TARGET_RMS = 0.05;
 const AGC_MAX_GAIN = 8;
 const AGC_LEVEL_EMA = 0.9; // previous-level weight per 100ms chunk
+// Speech gate: chunks below this RMS pass through untouched. Without it the
+// level EMA sinks to its floor during pauses, so the next quiet chunk gets max
+// gain — which lifts room babble to speech level, hides the silence the VAD
+// needs to close a segment, and merges neighbouring utterances into one commit
+// that carries the other talkers into STT. Harness-confirmed: CER 220% → 17%
+// at 3m with babble (see FARFIELD_HARNESS.md).
+const AGC_GATE_RMS = 0.006;
 
 interface SpeexAssets {
   SpeexWorkletNode: typeof SpeexWorkletNode;
@@ -290,13 +297,18 @@ export class WebAudioRecorder {
 
   /**
    * Far-field AGC (chunk-level): track the input level with an EMA and lift
-   * quiet chunks toward AGC_TARGET_RMS, gain clamped to [1, AGC_MAX_GAIN].
+   * quiet speech chunks toward AGC_TARGET_RMS, gain clamped to [1, AGC_MAX_GAIN].
    * Runs after the denoiser (graph order), so noise is not re-amplified.
+   *
+   * Speech-gated: chunks below AGC_GATE_RMS are passed through and excluded
+   * from level tracking, so pauses keep their real noise floor and the VAD can
+   * still close segments between utterances.
    */
   private applyAgc(samples: Float32Array): Float32Array {
     let sum = 0;
     for (let i = 0; i < samples.length; i++) sum += samples[i] * samples[i];
     const rms = Math.sqrt(sum / samples.length) + 1e-9;
+    if (rms < AGC_GATE_RMS) return samples;
     this.agcLevel =
       AGC_LEVEL_EMA * this.agcLevel + (1 - AGC_LEVEL_EMA) * Math.max(rms, 1e-4);
     const gain = Math.min(AGC_MAX_GAIN, Math.max(1, AGC_TARGET_RMS / this.agcLevel));

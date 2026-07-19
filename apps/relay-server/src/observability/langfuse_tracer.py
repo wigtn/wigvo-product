@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any
 
@@ -30,6 +31,27 @@ DIRECTION_LABELS = {
     "caller_to_callee": "🗣️ Caller → Callee",
     "callee_to_caller": "📞 Callee → Caller",
 }
+
+
+_ENV_ALLOWED = re.compile(r"^[a-z0-9][a-z0-9._-]{0,39}$")
+
+
+def _resolve_environment() -> str:
+    """관측 환경 이름을 정한다 (부하 트래픽을 실사용과 분리하기 위한 태그).
+
+    load_test_mode가 켜져 있으면 설정값과 무관하게 "load-test"로 강제한다 —
+    하네스를 돌리는 쪽이 환경변수를 빠뜨려도 실사용 데이터가 오염되지 않아야 한다.
+    Langfuse는 소문자/숫자/`.-_`만 허용하고 "langfuse" 접두사를 예약한다.
+    """
+    if settings.load_test_mode:
+        return "load-test"
+    env = (settings.langfuse_environment or "").strip().lower()
+    if not _ENV_ALLOWED.match(env) or env.startswith("langfuse"):
+        logger.warning(
+            "LANGFUSE_ENVIRONMENT=%r 이 형식에 맞지 않아 'production'으로 대체", env
+        )
+        return "production"
+    return env
 
 
 class LangfuseTracer:
@@ -52,13 +74,19 @@ class LangfuseTracer:
         try:
             from langfuse import Langfuse  # 지연 import: 키 있을 때만 의존
 
+            environment = _resolve_environment()
             self._client = Langfuse(
                 public_key=settings.langfuse_public_key,
                 secret_key=settings.langfuse_secret_key,
                 host=settings.langfuse_host,
+                environment=environment,
             )
             self._enabled = True
-            logger.info("Langfuse 추적 활성화 (host=%s)", settings.langfuse_host)
+            logger.info(
+                "Langfuse 추적 활성화 (host=%s, environment=%s)",
+                settings.langfuse_host,
+                environment,
+            )
         except Exception:
             logger.warning("Langfuse 초기화 실패 — 추적 비활성화", exc_info=True)
             self._client = None

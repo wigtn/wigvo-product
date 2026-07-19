@@ -152,11 +152,13 @@ class SpeakerMatcher:
     #: 배경음이 먼저 잡힐 때 그것이 '응대자'가 된다 — 실측(2026-07-19 통화 B,
     #: 유튜브를 먼저 튼 조건)에서 유튜브가 등록돼 이후 본인 발화가 전부
     #: -0.051~0.225로 떨어졌다. 차단을 켰다면 응대자가 통째로 막혔을 상황이다.
-    CANDIDATE_SEGMENTS = 5
+    CANDIDATE_SEGMENTS = 3
     #: 같은 화자로 묶는 기준. 실측 분포(같은 화자 0.585~0.754,
     #: 다른 화자 -0.051~0.306)의 사이에서 보수적으로 잡는다.
     SAME_SPEAKER_SIMILARITY = 0.40
-    #: 기준 확정 후에도 이 유사도 이상이면 기준에 계속 합산한다(최대 ENROLL_SEGMENTS).
+    #: 기준 확정 후 합산 기준. SAME_SPEAKER_SIMILARITY와 값은 같지만 의미가 다르다
+    #: — 이쪽은 '이미 정해진 기준과 같은 사람인가'이고, 저쪽은 '후보끼리 같은
+    #: 사람인가'다. 실측 분포가 더 쌓이면 갈라질 수 있어 별도 상수로 둔다.
     ENROLL_MIN_SIMILARITY = 0.40
     ENROLL_SEGMENTS = 5
 
@@ -166,6 +168,8 @@ class SpeakerMatcher:
         self._enroll_count: int = 0
         #: 기준 확정 전에 모으는 후보 임베딩
         self._candidates: list[np.ndarray] = []
+        #: 선출 시점에 계산한 후보 구간의 사후 점수 (기록용)
+        self._backfill: list[float] = []
 
     @property
     def enrolled(self) -> bool:
@@ -181,9 +185,15 @@ class SpeakerMatcher:
         Returns: 기준에 합산된 후보 수
         """
         n = len(self._candidates)
-        sims = np.array([[float(np.dot(a, b)) for b in self._candidates]
-                         for a in self._candidates])
+        mat = np.stack(self._candidates)          # 이중 루프 대신 행렬곱 한 번
+        sims = mat @ mat.T
         neighbors = (sims >= self.SAME_SPEAKER_SIMILARITY).sum(axis=1)
+        if int(neighbors.max()) < 2:
+            # 후보가 전부 서로 다른 화자다. 이 상태로 선출하면 무리가 1개가 되어
+            # '첫 발화 = 기준'으로 되돌아간다 — 고치려던 문제 그대로다.
+            # 다수가 드러날 때까지 보류하고 후보를 더 모은다.
+            logger.info("[SpeakerID] 후보 %d개가 모두 상이 — 선출 보류", n)
+            return 0
         anchor = int(np.argmax(neighbors))
         members = [c for c, s in zip(self._candidates, sims[anchor])
                    if s >= self.SAME_SPEAKER_SIMILARITY]
@@ -191,6 +201,10 @@ class SpeakerMatcher:
         self._reference = merged / (np.linalg.norm(merged) + 1e-9)
         self._enroll_count = len(members)
         self._enrolled_at = time.time()
+        # 후보 구간의 점수를 사후에 남긴다. 그냥 버리면 통화당 앞 N건이 통째로
+        # 빠지는데, 실측 통화가 7~10발화라 절반 가까이 손실이다.
+        self._backfill = [round(float(np.dot(self._reference, c)), 3)
+                          for c in self._candidates]
         self._candidates.clear()
         logger.info(
             "[SpeakerID] 응대자 기준 확정 — 후보 %d개 중 %d개로 (다수 화자 선출)",
@@ -228,8 +242,13 @@ class SpeakerMatcher:
                         "speaker_phase": "collecting",
                         "speaker_candidates": len(self._candidates)}
             members = self._elect_reference()
+            if members == 0:  # 선출 보류 — 후보를 더 모은다
+                return {**base, "speaker_similarity": None, "speaker_enrolled": False,
+                        "speaker_phase": "collecting",
+                        "speaker_candidates": len(self._candidates)}
             return {**base, "speaker_similarity": None, "speaker_enrolled": True,
-                    "speaker_phase": "elected", "speaker_enroll_count": members}
+                    "speaker_phase": "elected", "speaker_enroll_count": members,
+                    "speaker_backfill": self._backfill}
 
         # --- 기준 확정 후: 유사도 판정 ---
         similarity = float(np.dot(self._reference, emb))

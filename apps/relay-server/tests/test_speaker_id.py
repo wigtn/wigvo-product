@@ -70,3 +70,43 @@ class TestSpeakerMatcher:
         same = (await m.score(_tone(200)))["speaker_similarity"]
         diff = (await m.score(_tone(700)))["speaker_similarity"]
         assert same > diff
+
+
+class TestEnrollmentAveraging:
+    """기준을 여러 발화의 평균으로 잡아 한 번의 발성에 묶이지 않게 한다.
+
+    실측(2026-07-19 통화): 첫 발화 1건만 기준으로 삼았더니 본인 유사도가
+    0.379~0.558로 퍼졌고, 하한이 임계 후보(0.20~0.25)에 가까웠다.
+    타인(유튜브)은 0.007~0.096이라 분리 자체는 됐지만 마진이 얇았다.
+    """
+
+    @pytest.mark.asyncio
+    async def test_reference_absorbs_similar_segments(self):
+        m = SpeakerMatcher()
+        if await m.score(_tone(200)) is None:
+            pytest.skip("모델 미탑재 환경")
+        # 같은 소리를 반복하면 기준에 합산된다
+        for _ in range(2):
+            await m.score(_tone(200))
+        assert m._enroll_count > 1, "본인으로 보이는 발화는 기준에 합산돼야 한다"
+
+    @pytest.mark.asyncio
+    async def test_enrollment_stops_at_limit(self):
+        """무한히 합산하면 나중 발화가 기준을 계속 흔든다 — 상한을 둔다."""
+        m = SpeakerMatcher()
+        if await m.score(_tone(200)) is None:
+            pytest.skip("모델 미탑재 환경")
+        for _ in range(6):
+            await m.score(_tone(200))
+        assert m._enroll_count <= SpeakerMatcher.ENROLL_SEGMENTS
+
+    @pytest.mark.asyncio
+    async def test_dissimilar_segment_never_joins_reference(self):
+        """타인 발화가 한 번이라도 기준에 섞이면 이후 판정이 전부 흔들린다."""
+        m = SpeakerMatcher()
+        if await m.score(_tone(200)) is None:
+            pytest.skip("모델 미탑재 환경")
+        before = m._enroll_count
+        result = await m.score(_tone(1400))  # 확연히 다른 소리
+        if result["speaker_similarity"] < SpeakerMatcher.ENROLL_MIN_SIMILARITY:
+            assert m._enroll_count == before, "임계 미만은 합산하면 안 된다"

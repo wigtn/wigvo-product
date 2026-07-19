@@ -148,10 +148,20 @@ class SpeakerMatcher:
 
     #: 등록·판정에 필요한 최소 발화 길이. 너무 짧으면 임베딩이 불안정하다.
     MIN_SECONDS = 1.0
+    #: 기준에 합산할 최대 발화 수. 첫 발화 하나만 기준으로 쓰면 그 한 번의
+    #: 발성(톤·거리·길이)에 기준이 묶여 본인 유사도가 흔들린다. 실측에서
+    #: 본인 발화가 0.379~0.558로 퍼졌고, 하한이 임계 후보에 가까웠다.
+    ENROLL_SEGMENTS = 3
+    #: 이 값 이상이면 '본인으로 보인다'고 판단해 기준 보강에 합산한다.
+    #: 실측 분포(본인 0.379~, 타인 ~0.096)의 중간보다 보수적으로 잡아
+    #: 타인 발화가 기준에 섞이지 않게 한다.
+    ENROLL_MIN_SIMILARITY = 0.35
 
     def __init__(self) -> None:
         self._reference: np.ndarray | None = None
         self._enrolled_at: float = 0.0
+        #: 기준에 합산된 발화 수 (ENROLL_SEGMENTS까지)
+        self._enroll_count: int = 0
 
     @property
     def enrolled(self) -> bool:
@@ -178,12 +188,29 @@ class SpeakerMatcher:
 
         if self._reference is None:
             self._reference = emb
+            self._enroll_count = 1
             self._enrolled_at = time.time()
-            logger.info("[SpeakerID] 응대자 기준 등록 (%.0fms)", elapsed_ms)
+            logger.info("[SpeakerID] 응대자 기준 등록 1/%d (%.0fms)",
+                        self.ENROLL_SEGMENTS, elapsed_ms)
             return {"speaker_similarity": 1.0, "speaker_enrolled": True,
-                    "speaker_embed_ms": round(elapsed_ms, 1)}
+                    "speaker_enroll_count": 1, "speaker_embed_ms": round(elapsed_ms, 1)}
 
         similarity = float(np.dot(self._reference, emb))
-        logger.info("[SpeakerID] 유사도 %.3f (%.0fms)", similarity, elapsed_ms)
+
+        # 기준 보강: 본인으로 보이는 발화를 평균에 합산해 한 번의 발성에 묶이지
+        # 않게 한다. 임계 미만(타인 의심)은 절대 합산하지 않는다 — 한 번이라도
+        # 섞이면 기준이 오염돼 이후 판정이 전부 흔들린다.
+        enrolling = self._enroll_count < self.ENROLL_SEGMENTS
+        if enrolling and similarity >= self.ENROLL_MIN_SIMILARITY:
+            n = self._enroll_count
+            merged = self._reference * n + emb
+            self._reference = merged / (np.linalg.norm(merged) + 1e-9)
+            self._enroll_count = n + 1
+            logger.info("[SpeakerID] 유사도 %.3f — 기준 보강 %d/%d (%.0fms)",
+                        similarity, self._enroll_count, self.ENROLL_SEGMENTS, elapsed_ms)
+        else:
+            logger.info("[SpeakerID] 유사도 %.3f (%.0fms)", similarity, elapsed_ms)
+
         return {"speaker_similarity": round(similarity, 3), "speaker_enrolled": False,
+                "speaker_enroll_count": self._enroll_count,
                 "speaker_embed_ms": round(elapsed_ms, 1)}

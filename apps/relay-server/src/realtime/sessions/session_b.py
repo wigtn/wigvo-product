@@ -359,6 +359,10 @@ class SessionBHandler:
         # speech_stopped / debounce / speculative handler 등 여러 사이트에서 증감됨.
         # 변경 시 전체 증감 사이트를 확인할 것.
         self._pending_stt_count: int = 0
+        # 마지막 커밋/클리어 이후 OpenAI 입력 버퍼로 보낸 오디오 바이트 수.
+        # 0이면 모델에게 줄 입력이 없다는 뜻이므로 응답을 요청하지 않는다 —
+        # 요청하면 모델이 무에서 발화를 지어낸다(생성 환각).
+        self._uncommitted_audio_bytes: int = 0
 
         # Fix 1: 로컬 오디오 버퍼 (speech-only commit용)
         self._local_audio_frames: deque[str] = deque()  # base64 g711_ulaw frames
@@ -486,7 +490,19 @@ class SessionBHandler:
         if not self._local_audio_start_time:
             self._local_audio_start_time = time.time()
         # OpenAI에도 실시간 전달 (기존 동작 유지)
+        self._uncommitted_audio_bytes += len(audio_b64)
         await self.session.send_audio(audio_b64)
+
+    def _has_input_to_translate(self) -> bool:
+        """모델에게 줄 오디오가 실제로 있는가.
+
+        Silence timeout 경로는 누적 노이즈를 clear_input_buffer()로 비운 뒤
+        곧바로 응답 생성을 요청했다 — 입력이 0인데 생성을 시키면 모델이 무에서
+        발화를 지어낸다. 실측(2026-07-19): 빈 버퍼 커밋 오류 직후
+        "시청하려면 2번을 눌러주십시오" 같은 문장이 상대에게 송출됐다.
+        Chat API 경로에는 이미 같은 취지의 가드(`if not stt_text`)가 있다.
+        """
+        return self._uncommitted_audio_bytes > 0
 
     async def _commit_speech_only_audio(self) -> None:
         """발화 구간 오디오만 OpenAI에 commit한다 (후행 무음 제거).
@@ -506,6 +522,7 @@ class SessionBHandler:
         if speech_start <= 0 or speech_stop <= 0 or speech_stop <= speech_start:
             # fallback: 기존 방식
             await self.session.commit_audio_only()
+            self._uncommitted_audio_bytes = 0
             return
 
         # 발화 구간 프레임 추출 (20ms per frame, 50ms onset margin)
@@ -515,12 +532,14 @@ class SessionBHandler:
 
         if end_idx <= start_idx:
             await self.session.commit_audio_only()
+            self._uncommitted_audio_bytes = 0
             return
 
         frames = list(itertools.islice(self._local_audio_frames, start_idx, end_idx))
 
         # 1. 기존 버퍼 제거
         await self.session.clear_input_buffer()
+        self._uncommitted_audio_bytes = 0
 
         # 2. 발화 구간만 단일 blob으로 재전송
         speech_bytes = b"".join(base64.b64decode(f) for f in frames)
@@ -529,6 +548,7 @@ class SessionBHandler:
 
         # 3. commit
         await self.session.commit_audio_only()
+        self._uncommitted_audio_bytes = 0
 
         trimmed_ms = (len(self._local_audio_frames) - end_idx + start_idx) * 20
         logger.info(
@@ -554,6 +574,7 @@ class SessionBHandler:
         # 축적된 무음/노이즈 제거 → Whisper 할루시네이션 방지
         if not skip_clear:
             await self.session.clear_input_buffer()
+            self._uncommitted_audio_bytes = 0
 
         self._post_echo = post_echo
         self._speech_started_count += 1
@@ -615,6 +636,7 @@ class SessionBHandler:
             )
             # SPEAKING 중 전송된 노이즈 오디오를 제거하여 다음 commit 시 할루시네이션 방지
             await self.session.clear_input_buffer()
+            self._uncommitted_audio_bytes = 0
             return
 
         # Peak RMS 품질 필터: 에너지가 약한 speech는 노이즈/잔향으로 간주
@@ -627,6 +649,7 @@ class SessionBHandler:
                 settings.session_b_min_peak_rms,
             )
             await self.session.clear_input_buffer()
+            self._uncommitted_audio_bytes = 0
             return
 
         # speech_duration 기록 (노이즈 필터 통과 후)
@@ -656,6 +679,7 @@ class SessionBHandler:
     async def clear_input_buffer(self) -> None:
         """에코 잔여물을 제거하기 위해 입력 오디오 버퍼를 비운다."""
         await self.session.clear_input_buffer()
+        self._uncommitted_audio_bytes = 0
 
     async def flush_pending_output(self) -> None:
         """억제 해제 후 큐에 저장된 출력을 배출한다."""
@@ -1104,7 +1128,15 @@ class SessionBHandler:
                         "[SessionB] Debounce complete (%.0fms) — committing audio + creating response (local VAD)",
                         self._response_debounce_s * 1000,
                     )
+                    had_input = self._has_input_to_translate()
                     await self.session.commit_audio_only()
+                    self._uncommitted_audio_bytes = 0
+                    if not had_input:
+                        # 커밋할 오디오가 없었다 → 응답을 요청하면 모델이 지어낸다
+                        logger.warning(
+                            "[SessionB] 입력 오디오 없음 — 응답 생성 건너뜀 (생성 환각 방지)"
+                        )
+                        return
                 else:
                     logger.info(
                         "[SessionB] Debounce complete (%.0fms) — creating response",
@@ -1198,6 +1230,7 @@ class SessionBHandler:
                 return
 
             await self.session.commit_audio_only()
+            self._uncommitted_audio_bytes = 0
             self._pending_stt_count += 1
             self._stt_ready_event.clear()
             self._speculative_committed = True
@@ -1264,22 +1297,35 @@ class SessionBHandler:
                         # 15초 축적된 노이즈 제거 후 commit (할루시네이션 방지)
                         # speculative 발동 시에는 Part 2 오디오를 보존해야 하므로 skip
                         await self.session.clear_input_buffer()
+                        self._uncommitted_audio_bytes = 0
                     await self.session.commit_audio_only()
+                    self._uncommitted_audio_bytes = 0
                     self._pending_stt_count += 1
                     self._stt_ready_event.clear()
                 elif self._speculative_committed:
                     # Server VAD + speculative: speech_stopped 없이 timeout 발동
                     # 나머지 오디오를 강제 commit (auto-commit 미발생)
                     await self.session.commit_audio_only()
+                    self._uncommitted_audio_bytes = 0
                     self._pending_stt_count += 1
                     self._stt_ready_event.clear()
                 await self._translate_via_chat_api()
             else:
                 # --- 기존 Realtime API 경로 ---
                 if self._use_local_vad:
-                    # 15초 축적된 노이즈 제거 후 commit (할루시네이션 방지)
+                    # 15초 축적된 노이즈를 버린다(할루시네이션 방지). 버린 뒤에는
+                    # 번역할 입력이 남지 않으므로 응답을 요청하지 않는다 —
+                    # 요청하면 모델이 무에서 발화를 지어내 상대에게 송출된다.
+                    # 실측(2026-07-19): 빈 버퍼 커밋 오류 직후 "시청하려면 2번을
+                    # 눌러주십시오"가 생성됐다.
                     await self.session.clear_input_buffer()
-                    await self.session.commit_audio_only()
+                    self._uncommitted_audio_bytes = 0
+                    logger.warning(
+                        "[SessionB] Timeout: 누적 오디오 폐기 — 응답 생성 건너뜀 (생성 환각 방지)"
+                    )
+                    self._is_response_active = False
+                    self._response_done_event.set()
+                    return
 
                 self._stt_check_done.clear()  # STT 블록리스트 판정 완료까지 번역 대기
                 self._is_response_active = True

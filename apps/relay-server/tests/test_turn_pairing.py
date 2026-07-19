@@ -91,3 +91,29 @@ class TestSessionBPairing:
         h._pending_recipient_stt.append((time.time() - (_STT_PAIR_MAX_AGE_S + 1), "옛날 원문"))
         h._pending_recipient_stt.append((time.time(), "현재 원문"))
         assert h._take_recipient_stt() == "현재 원문"
+
+
+class TestNoResponseWithoutInput:
+    """입력 오디오가 없으면 응답을 생성하지 않는다 (생성 환각 방지).
+
+    실측(2026-07-19): 빈 버퍼 커밋 오류 직후 아무도 하지 않은 말이 생성돼
+    상대에게 송출됐다 — "시청하려면 2번을 눌러주십시오"(ARS 문구),
+    "혹시 지금 연결된 담당자분 계실까요?" 등 18턴.
+    Chat API 경로에는 이미 같은 취지의 가드(`if not stt_text`)가 있었고,
+    가드가 없던 Realtime 경로에 동일한 보호를 넣는다.
+    """
+
+    def _bare(self):
+        from src.realtime.sessions.session_b import SessionBHandler
+
+        h = SessionBHandler.__new__(SessionBHandler)
+        h._uncommitted_audio_bytes = 0
+        return h
+
+    def test_no_audio_means_no_input(self):
+        assert self._bare()._has_input_to_translate() is False
+
+    def test_audio_present_means_input_exists(self):
+        h = self._bare()
+        h._uncommitted_audio_bytes = 320
+        assert h._has_input_to_translate() is True

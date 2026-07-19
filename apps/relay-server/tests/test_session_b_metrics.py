@@ -116,8 +116,15 @@ class TestSilenceTimeoutAntiHallucination:
         assert handler._speech_stopped_at > 0
 
     @pytest.mark.asyncio
-    async def test_timeout_clears_buffer_before_commit(self):
-        """Silence timeout이 clear_input_buffer → commit_audio_only 순서로 호출한다."""
+    async def test_timeout_discards_audio_without_producing_a_turn(self):
+        """Silence timeout은 누적 오디오를 버리고 턴을 만들지 않는다.
+
+        계약 변경(2026-07-19): 이전에는 clear → commit 순서로 호출했으나,
+        비운 버퍼를 커밋하면 input_audio_buffer_commit_empty 오류만 나고,
+        이어지는 응답 생성은 **입력이 없는 상태에서 모델이 발화를 지어내는**
+        경로였다. 실측에서 "시청하려면 2번을 눌러주십시오"가 상대에게 송출됐다.
+        따라서 버린 뒤에는 커밋도 응답 생성도 하지 않는다.
+        """
         handler = _make_handler(use_local_vad=True)
         handler._speech_started_at = time.time() - 15.0
         handler._silence_timeout_s = 0.01
@@ -130,9 +137,12 @@ class TestSilenceTimeoutAntiHallucination:
             side_effect=lambda: call_order.append("commit")
         )
 
+        handler.session.create_response = AsyncMock()
+
         await handler._silence_timeout_handler()
 
-        assert call_order == ["clear", "commit"]
+        assert call_order == ["clear"], "비운 버퍼를 다시 커밋하지 않는다"
+        handler.session.create_response.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_timeout_not_clear_buffer_for_server_vad(self):

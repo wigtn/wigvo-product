@@ -148,24 +148,55 @@ class SpeakerMatcher:
 
     #: 등록·판정에 필요한 최소 발화 길이. 너무 짧으면 임베딩이 불안정하다.
     MIN_SECONDS = 1.0
-    #: 기준에 합산할 최대 발화 수. 첫 발화 하나만 기준으로 쓰면 그 한 번의
-    #: 발성(톤·거리·길이)에 기준이 묶여 본인 유사도가 흔들린다. 실측에서
-    #: 본인 발화가 0.379~0.558로 퍼졌고, 하한이 임계 후보에 가까웠다.
-    ENROLL_SEGMENTS = 3
-    #: 이 값 이상이면 '본인으로 보인다'고 판단해 기준 보강에 합산한다.
-    #: 실측 분포(본인 0.379~, 타인 ~0.096)의 중간보다 보수적으로 잡아
-    #: 타인 발화가 기준에 섞이지 않게 한다.
-    ENROLL_MIN_SIMILARITY = 0.35
+    #: 기준을 정하기 전에 모아둘 발화 수. 첫 발화를 곧바로 기준으로 삼으면
+    #: 배경음이 먼저 잡힐 때 그것이 '응대자'가 된다 — 실측(2026-07-19 통화 B,
+    #: 유튜브를 먼저 튼 조건)에서 유튜브가 등록돼 이후 본인 발화가 전부
+    #: -0.051~0.225로 떨어졌다. 차단을 켰다면 응대자가 통째로 막혔을 상황이다.
+    CANDIDATE_SEGMENTS = 5
+    #: 같은 화자로 묶는 기준. 실측 분포(같은 화자 0.585~0.754,
+    #: 다른 화자 -0.051~0.306)의 사이에서 보수적으로 잡는다.
+    SAME_SPEAKER_SIMILARITY = 0.40
+    #: 기준 확정 후에도 이 유사도 이상이면 기준에 계속 합산한다(최대 ENROLL_SEGMENTS).
+    ENROLL_MIN_SIMILARITY = 0.40
+    ENROLL_SEGMENTS = 5
 
     def __init__(self) -> None:
         self._reference: np.ndarray | None = None
         self._enrolled_at: float = 0.0
-        #: 기준에 합산된 발화 수 (ENROLL_SEGMENTS까지)
         self._enroll_count: int = 0
+        #: 기준 확정 전에 모으는 후보 임베딩
+        self._candidates: list[np.ndarray] = []
 
     @property
     def enrolled(self) -> bool:
         return self._reference is not None
+
+    def _elect_reference(self) -> int:
+        """후보 중 '가장 많은 동료를 가진' 화자를 응대자로 정한다.
+
+        전제: 통화에서 응대자가 가장 많이 말한다. 배경음(방송·옆자리)은
+        간헐적이므로 같은 화자끼리 묶이는 무리가 더 작다. 실측 2통화 모두
+        본인이 다수였다(6:3, 4:3).
+
+        Returns: 기준에 합산된 후보 수
+        """
+        n = len(self._candidates)
+        sims = np.array([[float(np.dot(a, b)) for b in self._candidates]
+                         for a in self._candidates])
+        neighbors = (sims >= self.SAME_SPEAKER_SIMILARITY).sum(axis=1)
+        anchor = int(np.argmax(neighbors))
+        members = [c for c, s in zip(self._candidates, sims[anchor])
+                   if s >= self.SAME_SPEAKER_SIMILARITY]
+        merged = np.sum(members, axis=0)
+        self._reference = merged / (np.linalg.norm(merged) + 1e-9)
+        self._enroll_count = len(members)
+        self._enrolled_at = time.time()
+        self._candidates.clear()
+        logger.info(
+            "[SpeakerID] 응대자 기준 확정 — 후보 %d개 중 %d개로 (다수 화자 선출)",
+            n, len(members),
+        )
+        return len(members)
 
     async def score(self, pcm16: bytes) -> dict | None:
         """세그먼트를 채점한다. 반환은 기록용 dict (None이면 처리 불가).
@@ -185,32 +216,34 @@ class SpeakerMatcher:
         elapsed_ms = (time.perf_counter() - started) * 1000
         if emb is None:
             return None
+        base = {"speaker_embed_ms": round(elapsed_ms, 1)}
 
+        # --- 기준 확정 전: 후보만 모은다 (이 구간은 판정하지 않는다) ---
         if self._reference is None:
-            self._reference = emb
-            self._enroll_count = 1
-            self._enrolled_at = time.time()
-            logger.info("[SpeakerID] 응대자 기준 등록 1/%d (%.0fms)",
-                        self.ENROLL_SEGMENTS, elapsed_ms)
-            return {"speaker_similarity": 1.0, "speaker_enrolled": True,
-                    "speaker_enroll_count": 1, "speaker_embed_ms": round(elapsed_ms, 1)}
+            self._candidates.append(emb)
+            if len(self._candidates) < self.CANDIDATE_SEGMENTS:
+                logger.info("[SpeakerID] 후보 수집 %d/%d (%.0fms)",
+                            len(self._candidates), self.CANDIDATE_SEGMENTS, elapsed_ms)
+                return {**base, "speaker_similarity": None, "speaker_enrolled": False,
+                        "speaker_phase": "collecting",
+                        "speaker_candidates": len(self._candidates)}
+            members = self._elect_reference()
+            return {**base, "speaker_similarity": None, "speaker_enrolled": True,
+                    "speaker_phase": "elected", "speaker_enroll_count": members}
 
+        # --- 기준 확정 후: 유사도 판정 ---
         similarity = float(np.dot(self._reference, emb))
-
-        # 기준 보강: 본인으로 보이는 발화를 평균에 합산해 한 번의 발성에 묶이지
-        # 않게 한다. 임계 미만(타인 의심)은 절대 합산하지 않는다 — 한 번이라도
-        # 섞이면 기준이 오염돼 이후 판정이 전부 흔들린다.
-        enrolling = self._enroll_count < self.ENROLL_SEGMENTS
-        if enrolling and similarity >= self.ENROLL_MIN_SIMILARITY:
+        if (self._enroll_count < self.ENROLL_SEGMENTS
+                and similarity >= self.ENROLL_MIN_SIMILARITY):
             n = self._enroll_count
             merged = self._reference * n + emb
             self._reference = merged / (np.linalg.norm(merged) + 1e-9)
             self._enroll_count = n + 1
-            logger.info("[SpeakerID] 유사도 %.3f — 기준 보강 %d/%d (%.0fms)",
-                        similarity, self._enroll_count, self.ENROLL_SEGMENTS, elapsed_ms)
+            logger.info("[SpeakerID] 유사도 %.3f — 기준 보강 %d개 (%.0fms)",
+                        similarity, self._enroll_count, elapsed_ms)
         else:
             logger.info("[SpeakerID] 유사도 %.3f (%.0fms)", similarity, elapsed_ms)
 
-        return {"speaker_similarity": round(similarity, 3), "speaker_enrolled": False,
-                "speaker_enroll_count": self._enroll_count,
-                "speaker_embed_ms": round(elapsed_ms, 1)}
+        return {**base, "speaker_similarity": round(similarity, 3),
+                "speaker_enrolled": False, "speaker_phase": "scoring",
+                "speaker_enroll_count": self._enroll_count}

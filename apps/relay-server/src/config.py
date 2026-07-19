@@ -272,6 +272,11 @@ class Settings(BaseSettings):
     langfuse_public_key: str = ""
     langfuse_secret_key: str = ""
     langfuse_host: str = "https://cloud.langfuse.com"
+    # 관측 데이터 분리용 환경 이름. 부하/개발 트래픽이 실사용 데이터와 섞이면
+    # 품질 기준선과 평가셋(MEGA Loop 입력)이 오염된다 — 실측: 통화 300건 중
+    # 297건이 비용 0원인 부하 트래픽이었고 실사용은 3건뿐이었다.
+    # load_test_mode가 켜져 있으면 이 값과 무관하게 "load-test"로 강제한다.
+    langfuse_environment: str = "production"
 
     model_config = {
         "env_file": str(_ENV_FILE),

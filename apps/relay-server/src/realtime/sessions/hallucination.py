@@ -38,6 +38,23 @@ _CREDIT_BLOCKLIST = frozenset(
     }
 )
 
+# 위 블록리스트는 완전일치라, Whisper가 크레딧을 문장에 섞어 뱉으면 통과한다.
+# 실제 관측(far-field 평가, 5 dB SNR): "Thank you for watching and I'll see you
+# in the next video." → 위 항목 두 개를 포함하는데도 완전일치가 아니라 미차단.
+# 그래서 '통화에서 절대 나올 수 없는' 문구만 부분일치로 따로 본다.
+# ⚠️ "see you next time"·"thank you"처럼 정상 발화일 수 있는 표현은 넣지 않는다.
+_CREDIT_SUBSTRINGS = (
+    "thanks for watching",
+    "thank you for watching",
+    "for watching this video",
+    "in the next video",
+    "please subscribe",
+    "like and subscribe",
+    "시청해주셔서",
+    "시청해 주셔서",
+    "구독과 좋아요",
+)
+
 
 def _normalize(text: str) -> str:
     return text.strip().translate(_PUNCT_STRIP).lower()
@@ -76,6 +93,9 @@ def is_caller_hallucination(text: str) -> bool:
         return True
     if _REPETITION_RE.search(text):
         return True
-    if _normalize(text) in _CREDIT_BLOCKLIST:
+    normalized = _normalize(text)
+    if normalized in _CREDIT_BLOCKLIST:
+        return True
+    if any(s in normalized for s in _CREDIT_SUBSTRINGS):
         return True
     return False

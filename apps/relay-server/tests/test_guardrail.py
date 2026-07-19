@@ -4,6 +4,7 @@ import pytest
 from src.guardrail.checker import GuardrailChecker, GuardrailLevel
 from src.guardrail.filter import TextFilter, FilterCategory
 from src.guardrail.dictionary import get_banned_words, get_threat_phrases, get_filler_text
+from src.realtime.sessions.hallucination import is_caller_hallucination
 
 
 class TestTextFilter:
@@ -178,3 +179,36 @@ class TestDictionary:
         for lang in ("ko", "en", "ja", "zh"):
             phrases = get_threat_phrases(lang)
             assert len(phrases) > 0, f"No threat phrases for {lang}"
+
+
+class TestCreditSubstringMatch:
+    """크레딧 문구가 문장에 섞여 나와도 차단되는지 (far-field 평가에서 발견된 누락).
+
+    Whisper는 크레딧을 단독으로 뱉지 않고 문장에 섞어 뱉는 경우가 있어
+    완전일치 블록리스트만으로는 통과했다. 실측 사례: 5 dB SNR 조건에서
+    "Thank you for watching and I'll see you in the next video."
+    """
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "Thank you for watching and I'll see you in the next video.",
+            "Thanks for watching, please subscribe!",
+            "그럼 오늘 영상 시청해주셔서 감사합니다 다음에 또 만나요",
+            "구독과 좋아요 눌러주시면 큰 힘이 됩니다",
+        ],
+    )
+    def test_credit_inside_sentence_is_blocked(self, text):
+        assert is_caller_hallucination(text) is True
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "Thank you for calling. How can I help you?",
+            "감사합니다. 무엇을 도와드릴까요?",
+            "See you next Monday at the office.",
+            "I was watching the queue and it moved fast.",
+        ],
+    )
+    def test_normal_speech_is_not_blocked(self, text):
+        assert is_caller_hallucination(text) is False

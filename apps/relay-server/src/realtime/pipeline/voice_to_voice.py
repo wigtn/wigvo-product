@@ -21,6 +21,7 @@ from typing import Any, Callable, Coroutine, Literal
 
 from src.config import settings
 from src.observability import tracer
+from src.realtime.speaker_id import SpeakerMatcher
 from src.guardrail.checker import GuardrailChecker
 from src.realtime.audio_utils import pcm16_rms as _pcm16_rms, ulaw_rms as _ulaw_rms
 from src.realtime.context_manager import ConversationContextManager
@@ -167,6 +168,11 @@ class VoiceToVoicePipeline(BasePipeline):
         self._user_audio_chunk_count = 0
         # Session A 커밋 에너지 게이트: 마지막 커밋 이후 관측한 최대 RMS
         self._user_peak_rms: float = 0.0
+        # 커밋 세그먼트의 원본 오디오. 화자 식별은 세그먼트당 1회만 돌린다 —
+        # 프레임 단위면 Silero보다 무거운 모델을 50배 빈도로 돌리게 되어
+        # 감당할 수 없다. 커밋 시점에 한 번에 넘기려고 모아둔다(상한 15초).
+        self._user_segment: list[bytes] = []
+        self._speaker = SpeakerMatcher()
         # 인사말 게이트로 드랍된 pre-greeting 오디오 청크 수 (첫 드랍 시 1회 로깅)
         self._pre_greeting_drops = 0
 
@@ -324,6 +330,14 @@ class VoiceToVoicePipeline(BasePipeline):
         rms = _pcm16_rms(audio_bytes)
         if rms > self._user_peak_rms:
             self._user_peak_rms = rms
+        if len(self._user_segment) < 150:  # 16kHz PCM16 100ms 청크 × 150 = 15초
+            self._user_segment.append(audio_bytes)
+        elif len(self._user_segment) == 150:
+            # 이후 오디오는 화자 판정에 쓰지 않는다. 판정에는 1~3초면 충분하지만,
+            # 잘린 사실이 로그에 없으면 나중에 유사도가 낮게 나올 때 원인을
+            # 엉뚱한 데서 찾게 된다 (실측: 22.3초 발화 사례 존재).
+            self._user_segment.append(b"")  # 센티널: 재로깅 방지
+            logger.info("[SpeakerID] 세그먼트 15초 초과 — 앞 15초만 화자 판정에 사용")
         self._user_audio_chunk_count += 1
         if self._user_audio_chunk_count % 10 == 0:
             logger.info("[SessionA] User audio RMS=%.0f", rms)
@@ -339,11 +353,26 @@ class VoiceToVoicePipeline(BasePipeline):
         await self.session_a.send_user_audio(audio_b64)
         self.ring_buffer_a.mark_sent(seq)
 
+    async def _score_speaker_shadow(self, segment_audio: bytes, peak: float) -> None:
+        """화자 유사도를 기록한다 (섀도 모드). 실패해도 통화에 영향이 없어야 한다."""
+        try:
+            info = await self._speaker.score(segment_audio)
+            if info:
+                tracer.record_event(
+                    self.call,
+                    name="🎙 Speaker match (shadow)",
+                    metadata={**info, "peak_rms": round(peak)},
+                )
+        except Exception:
+            logger.exception("[SpeakerID] 섀도 채점 실패 (무시)")
+
     async def handle_user_audio_commit(self) -> None:
         # 인사말 게이트: 수신자 응답 전에는 커밋할 오디오도 없다 (빈 버퍼 커밋 방지)
         # 세그먼트 peak RMS를 먼저 읽고 즉시 리셋 (어떤 조기 return 경로에서도 누적 방지)
         peak = self._user_peak_rms
         self._user_peak_rms = 0.0
+        segment_audio = b"".join(self._user_segment)
+        self._user_segment.clear()
         if not self.call.first_message_sent:
             return
         if self.recovery_a.is_recovering or self.recovery_a.is_degraded:
@@ -361,6 +390,14 @@ class VoiceToVoicePipeline(BasePipeline):
             )
             await self.session_a.clear_user_audio()
             return
+        # 화자 식별 (섀도 모드) — 기록만 하고 판정에는 쓰지 않는다. 실제 사람
+        # 목소리 기준의 분포를 모으기 전에 차단을 켜면 임계를 잘못 잡아 본인
+        # 발화를 막을 수 있다 — 발화 유실은 상대가 즉시 알아챈다.
+        # await하면 매 발화마다 번역 시작이 그만큼 밀린다. Session A 지연은
+        # 관리 중인 핵심 지표(429~599ms)이므로, 기록만 하는 기능이 이를 건드리면
+        # 안 된다 — 발사 후 망각으로 분리한다.
+        asyncio.create_task(self._score_speaker_shadow(segment_audio, peak))
+
         # 선제적 Echo Gate 활성화: commit → TTS 생성(1-2s) 사이 에코 누출 방지
         # 첫 발화 시 수신자 전화기 AEC 미적응으로 에코가 Session B로 누출하는 문제 차단
         # 이 커밋의 입력 에너지를 턴 메타데이터로 남긴다 (생성 환각 판별용)

@@ -67,6 +67,8 @@ class EchoGateManager:
         self._tts_total_bytes: int = 0
         self._pre_activate_timeout: asyncio.Task | None = None
         self._first_breakthrough_absorbed: bool = False
+        # 첫 돌파 프레임 보류분 — 에코/발화 판별 전까지 들고 있는다
+        self._held_onset: bytes = b""
         # 에코창이 열린 시각 — 이보다 먼저 시작된 발화는 이 TTS의 에코일 수 없다
         self._echo_window_opened_at: float = 0.0
         self._preexisting_speech_logged: bool = False
@@ -269,17 +271,23 @@ class EchoGateManager:
             rms = _ulaw_rms(audio_bytes)
             if rms > settings.echo_energy_threshold_rms:
                 if not self._first_breakthrough_absorbed:
-                    # 첫 번째 돌파 = PSTN 에코 — 흡수하고 게이트 유지
+                    # 첫 번째 돌파는 PSTN 에코일 수 있으므로 아직 내보내지 않는다.
+                    # 다만 **버린다면** 진짜로 끼어든 발화의 시작이 통째로 사라진다
+                    # — 실측(2026-07-19): 한 통화에서 4회 폐기, 사용자가 "인터럽트
+                    # 하면 그 내용이 아예 안 들린다"고 보고. 그래서 폐기 대신
+                    # 보류(hold)하고, 다음 프레임도 고에너지면 진짜 발화로 보고
+                    # 함께 흘려보낸다. 에코라면 다음 프레임이 조용해져 폐기된다.
                     self._first_breakthrough_absorbed = True
+                    self._held_onset = audio_bytes
                     logger.info(
-                        "First breakthrough absorbed as echo (RMS=%.0f) — gate stays closed",
+                        "First breakthrough held (RMS=%.0f) — 다음 프레임으로 에코/발화 판별",
                         rms,
                     )
                     self._fire_event("echo_absorbed", rms=round(rms))
                     if self._on_breakthrough is not None:
                         asyncio.create_task(self._on_breakthrough())
                     return b"\xff" * len(audio_bytes)
-                # 두 번째 이상 돌파 = 진짜 발화
+                # 두 번째 이상 돌파 = 진짜 발화 — 보류했던 시작 부분을 함께 복원한다
                 logger.info(
                     "High energy (RMS=%.0f) during echo window — breaking echo gate",
                     rms,
@@ -289,7 +297,15 @@ class EchoGateManager:
                 self._deactivate()
                 if self._on_breakthrough is not None:
                     asyncio.create_task(self._on_breakthrough())
+                onset, self._held_onset = self._held_onset, b""
+                if onset:
+                    logger.info("Held onset 복원 (%d bytes) — 인터럽트 시작 부분 보존", len(onset))
+                    return onset + audio_bytes
                 return audio_bytes
+            # 조용해졌다 = 보류했던 돌파는 에코였다 → 폐기
+            if self._held_onset:
+                logger.info("Held onset 폐기 — 후속 프레임이 조용해 에코로 판별")
+                self._held_onset = b""
             return b"\xff" * len(audio_bytes)
         return audio_bytes
 
@@ -337,6 +353,7 @@ class EchoGateManager:
             self._echo_window_opened_at = time.time()
             self._preexisting_speech_logged = False
             self._preexisting_expired_logged = False
+            self._held_onset = b""
             logger.info("Echo window activated — silence injection for Session B input")
             self._call_metrics.echo_suppressions += 1
             self._first_breakthrough_absorbed = False

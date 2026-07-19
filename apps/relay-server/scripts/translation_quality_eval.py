@@ -30,6 +30,7 @@ import base64
 import json
 import os
 import sys
+import ssl
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 
@@ -159,6 +160,20 @@ def run_validation() -> None:
 
 # ---------------- 프로덕션 채점 ----------------
 
+def _ssl_context() -> ssl.SSLContext:
+    """certifi 번들로 검증 컨텍스트를 만든다.
+
+    이 환경의 시스템 파이썬에는 CA 번들이 설치돼 있지 않아 urllib 기본 설정으로는
+    CERTIFICATE_VERIFY_FAILED가 난다. 검증을 끄는 대신 번들을 지정한다.
+    """
+    try:
+        import certifi
+
+        return ssl.create_default_context(cafile=certifi.where())
+    except ImportError:
+        return ssl.create_default_context()
+
+
 def fetch_turns(limit: int) -> list[dict]:
     """Langfuse에서 번역 턴(generation)을 가져온다. production 환경만."""
     pk, sk = os.environ["LANGFUSE_PUBLIC_KEY"], os.environ["LANGFUSE_SECRET_KEY"]
@@ -166,7 +181,7 @@ def fetch_turns(limit: int) -> list[dict]:
     auth = base64.b64encode(f"{pk}:{sk}".encode()).decode()
     url = f"{host}/api/public/observations?type=GENERATION&limit={min(limit, 100)}"
     req = urllib.request.Request(url, headers={"Authorization": f"Basic {auth}"})
-    with urllib.request.urlopen(req, timeout=60) as r:
+    with urllib.request.urlopen(req, timeout=60, context=_ssl_context()) as r:
         data = json.load(r)["data"]
     turns = []
     for o in data:

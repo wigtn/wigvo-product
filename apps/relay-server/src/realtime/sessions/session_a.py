@@ -10,6 +10,7 @@ PRD 3.2:
 import asyncio
 import base64
 import logging
+from collections import deque
 import time
 from typing import Any, Callable, Coroutine
 
@@ -21,6 +22,9 @@ from src.tools.executor import FunctionExecutor
 from src.types import ActiveCall, CallMode, CostTokens, TranscriptEntry
 
 logger = logging.getLogger(__name__)
+
+# 이 시간이 지나도 짝지어지지 않은 원문은 폐기한다 (밀림 방지).
+_STT_PAIR_MAX_AGE_S = 30.0
 
 
 class SessionAHandler:
@@ -95,7 +99,12 @@ class SessionAHandler:
         self._first_audio_received: bool = False
 
         # 번역 품질 평가용: User STT 원문 임시 저장
-        self._last_user_stt: str = ""
+        # 원문 STT 대기열 (번역 완료 시 순서대로 짝지어 소비).
+        # 단일 슬롯이면 번역 #1이 끝나기 전에 STT #2가 도착할 때 덮어써져
+        # 번역 #1이 STT #2의 원문과 묶인다 — 실측(2026-07-19)에서
+        # "Thank you." → "일단 보기만 하려고 하는데요." 같은 엉뚱한 쌍이
+        # Langfuse에 기록됐고, 오역 채점이 통째로 무효가 됐다.
+        self._pending_user_stt: deque[tuple[float, str]] = deque(maxlen=8)
         # 시스템 생성 메시지 (첫 인사말 등) — transcript에 role="assistant"로 저장
         self._system_message_pending: bool = False
 
@@ -191,9 +200,26 @@ class SessionAHandler:
         """User 입력 시점을 기록한다 (Text 모드에서 파이프라인이 호출)."""
         self._user_input_at = time.time()
 
+    def _take_user_stt(self) -> str:
+        """번역 하나에 대응하는 원문을 대기열에서 꺼낸다 (FIFO).
+
+        너무 오래된 항목은 짝을 잃은 것이므로 버린다 — 그대로 두면 이후 번역들이
+        한 칸씩 밀린 원문과 묶여 오염이 계속된다.
+        """
+        cutoff = time.time() - _STT_PAIR_MAX_AGE_S
+        while self._pending_user_stt and self._pending_user_stt[0][0] < cutoff:
+            stale_ts, stale_text = self._pending_user_stt.popleft()
+            logger.info(
+                "[SessionA] STT 짝 유실 — %.1fs 경과분 폐기: %s",
+                time.time() - stale_ts, stale_text[:40],
+            )
+        if not self._pending_user_stt:
+            return ""
+        return self._pending_user_stt.popleft()[1]
+
     def set_last_user_stt(self, text: str) -> None:
         """T2V: 사용자 입력 원문을 설정한다 (transcript_bilingual original_text 보존)."""
-        self._last_user_stt = text
+        self._pending_user_stt.append((time.time(), text))
 
     async def wait_for_done(self, timeout: float = 5.0) -> bool:
         """응답 생성 완료를 대기한다. 이미 완료 상태면 즉시 반환."""
@@ -327,11 +353,12 @@ class SessionAHandler:
                 )
                 self._system_message_pending = False
             else:
-                # User 발화 → 번역
+                # User 발화 → 번역 (원문은 대기열에서 순서대로 하나 꺼낸다)
+                paired_original = self._take_user_stt()
                 self._call.transcript_bilingual.append(
                     TranscriptEntry(
                         role="user",
-                        original_text=self._last_user_stt or transcript,
+                        original_text=paired_original or transcript,
                         translated_text=transcript,
                         language=self._call.source_language,
                         timestamp=time.time(),
@@ -344,15 +371,14 @@ class SessionAHandler:
                     guardrail_level = getattr(lvl, "value", lvl)
                 self._lf_pending_turn = {
                     "direction": "caller_to_callee",
-                    "original_text": self._last_user_stt or transcript,
+                    "original_text": paired_original or transcript,
                     "translated_text": transcript,
                     "language": self._call.source_language,
                     "stages": {
                         "guardrail_level": guardrail_level,
-                        "stt_source": "caller_stt" if self._last_user_stt else "translation_fallback",
+                        "stt_source": "caller_stt" if paired_original else "translation_fallback",
                     },
                 }
-            self._last_user_stt = ""  # 사용 후 초기화
 
         # 대화 컨텍스트 콜백
         if self._on_transcript_complete:
@@ -460,7 +486,7 @@ class SessionAHandler:
                     metadata={"session": "A", "text": transcript[:120]},
                 )
             return
-        self._last_user_stt = transcript  # 번역 품질 평가용 원문 저장
+        self._pending_user_stt.append((time.time(), transcript))  # 번역과 순서대로 짝지음
         logger.info("[SessionA] User STT: %s", transcript[:80])
         if self._on_user_transcription:
             await self._on_user_transcription(transcript)

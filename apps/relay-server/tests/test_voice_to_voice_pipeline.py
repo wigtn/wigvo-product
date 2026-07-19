@@ -266,7 +266,7 @@ class TestVoiceToVoiceUserAudio:
         router.recovery_a.is_degraded = False
         router.context_manager = MagicMock()
         router.context_manager.inject_context = AsyncMock()
-        router._user_peak_rms = 1000.0  # 실발화 감지 상태 → 에너지 게이트 통과
+        router._user_peak_rms = 8000.0  # 근접 발화 수준 (실측 p75≈7300) → 게이트 통과
 
         await router.handle_user_audio_commit()
 
@@ -286,7 +286,7 @@ class TestVoiceToVoiceUserAudio:
         router.recovery_a.is_degraded = False
         router.context_manager = MagicMock()
         router.context_manager.inject_context = AsyncMock()
-        router._user_peak_rms = 1000.0  # 실발화 감지 상태 → 에너지 게이트 통과
+        router._user_peak_rms = 8000.0  # 근접 발화 수준 (실측 p75≈7300) → 게이트 통과
 
         await router.handle_user_audio_commit()
 
@@ -303,7 +303,7 @@ class TestVoiceToVoiceUserAudio:
         router.recovery_a.is_degraded = False
         router.context_manager = MagicMock()
         router.context_manager.inject_context = AsyncMock()
-        router._user_peak_rms = 1000.0  # 실발화 감지 상태 → 에너지 게이트 통과
+        router._user_peak_rms = 8000.0  # 근접 발화 수준 (실측 p75≈7300) → 게이트 통과
 
         await router.handle_user_audio_commit()
 
@@ -322,7 +322,7 @@ class TestVoiceToVoiceUserAudio:
         router.context_manager.inject_context = AsyncMock()
 
         assert router.echo_gate.in_echo_window is False
-        router._user_peak_rms = 1000.0  # 실발화 감지 상태 → 에너지 게이트 통과
+        router._user_peak_rms = 8000.0  # 근접 발화 수준 (실측 p75≈7300) → 게이트 통과
 
         await router.handle_user_audio_commit()
 
@@ -342,7 +342,7 @@ class TestVoiceToVoiceUserAudio:
         router.recovery_a.is_degraded = False
         router.context_manager = MagicMock()
         router.context_manager.inject_context = AsyncMock()
-        router._user_peak_rms = 10.0  # 실발화 임계(250) 미만
+        router._user_peak_rms = 900.0  # 원거리 대화 수준 — 근접 임계(2000) 미만
 
         await router.handle_user_audio_commit()
 

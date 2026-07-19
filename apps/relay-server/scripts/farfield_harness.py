@@ -204,15 +204,17 @@ def make_condition(clean, dist_gain, reverb, noise_rms, noise_kind="babble"):
 # ---------- far-field 체인 ----------
 
 def highpass(x, fc=100.0):
+    """1차 하이패스 (브라우저 BiquadFilter 대응).
+
+    y[n] = b*(x[n]-x[n-1]) + a*y[n-1] 의 임펄스 응답은 a^n 이고, a≈0.96에서
+    500 샘플이면 4e-9까지 감쇠하므로 절단 컨볼루션으로 동일 결과를 벡터화한다.
+    (샘플 단위 파이썬 루프는 대규모 평가에서 병목이라 numpy로 대체)
+    """
     a = np.exp(-2 * np.pi * fc / SR)
     b = (1 + a) / 2
-    y = np.empty_like(x)
-    py = px = 0.0
-    for i, v in enumerate(x):
-        py = b * (v - px) + a * py
-        px = v
-        y[i] = py
-    return y
+    d = b * np.diff(x, prepend=np.float32(0)).astype(np.float32)
+    kernel = (a ** np.arange(500)).astype(np.float32)
+    return np.convolve(d, kernel)[: len(x)].astype(np.float32)
 
 
 def spectral_denoise(x):

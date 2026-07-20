@@ -755,7 +755,7 @@ class VoiceToVoicePipeline(BasePipeline):
 
     async def _on_guardrail_event(self, event_data: dict) -> None:
         self.call.guardrail_events_log.append(event_data)
-        tracer.record_event(self.call, name="🛡 Guardrail triggered", metadata=event_data)
+        tracer.record_event(self.call, name="🛡 Guardrail triggered", metadata=event_data, is_error=True)
         await self._app_ws_send(
             WsMessage(
                 type=WsMessageType.GUARDRAIL_TRIGGERED,

@@ -270,6 +270,40 @@ class TestCooldown:
         assert gate._settling_until == 0.0
 
 
+class TestInSettling:
+    """in_settling 프로퍼티 — 세틀링 억제와 에코 윈도우 억제를 구분한다.
+
+    파이프라인은 이 값으로 온셋 처리를 가른다: 세틀링은 RMS 프리게이트가
+    에코를 이미 걸렀으므로 온셋을 보존, 에코 윈도우는 보수적으로 폐기.
+    """
+
+    def test_false_when_idle(self):
+        gate, _, _ = _make_echo_gate()
+        assert gate.is_suppressing is False
+        assert gate.in_settling is False
+
+    def test_false_during_echo_window(self):
+        """에코 윈도우 억제는 세틀링이 아니다."""
+        gate, _, _ = _make_echo_gate()
+        gate._activate()
+        assert gate.is_suppressing is True
+        assert gate.in_echo_window is True
+        assert gate.in_settling is False
+
+    def test_true_during_settling(self):
+        """echo window 없이 settling만 활성 → in_settling = True."""
+        gate, _, _ = _make_echo_gate()
+        gate.begin_settling(1.0)
+        assert gate.in_echo_window is False
+        assert gate.is_suppressing is True
+        assert gate.in_settling is True
+
+    def test_false_after_settling_expires(self):
+        gate, _, _ = _make_echo_gate()
+        gate._settling_until = time.time() - 0.01  # 이미 만료
+        assert gate.in_settling is False
+
+
 class TestRecipientSpeech:
     """수신자 발화 감지 테스트."""
 

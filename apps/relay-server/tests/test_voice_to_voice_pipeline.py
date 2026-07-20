@@ -631,6 +631,120 @@ class TestVoiceToVoiceTwilioAudio:
         assert router.ring_buffer_b._total_written > 0
 
 
+class TestSettlingOnsetPreservation:
+    """세틀링 중 발신자 발화 온셋 보존.
+
+    인바운드 핸드오프 직후 세틀링과 겹쳐 시작된 발신자 발화가 앞부분이 잘려
+    Whisper가 조각으로 헛것을 만들던 문제(실측 2026-07-20: "Choice.",
+    "first kite"). 세틀링은 RMS 프리게이트(200)로 이미 에코를 걸러내므로,
+    통과한 온셋은 폐기하지 않고 버퍼링했다가 SPEAKING 전환 시 흘려보낸다.
+    에코 윈도우 억제는 고에너지도 에코일 수 있어 기존대로 보수적으로 폐기한다.
+    """
+
+    def _settling(self, router):
+        """echo window 없이 settling만 활성화한 상태로 만든다."""
+        import time as _time
+        router.echo_gate.in_echo_window = False
+        router.echo_gate._settling_until = _time.time() + 1.0
+
+    @pytest.mark.asyncio
+    async def test_settling_buffers_clean_onset(self):
+        """세틀링 중 실발화(RMS>200) → 폐기 대신 pre-speech 버퍼에 축적."""
+        router = _make_router_with_local_vad()
+        router.session_b.send_recipient_audio = AsyncMock()
+        router.local_vad.is_speaking = False  # 아직 SPEAKING 확정 전
+        self._settling(router)
+        assert router.echo_gate.in_settling is True
+
+        audio = bytes([0x10] * 160)  # RMS≈3999 > 200 → 실발화로 판별
+        await router.handle_twilio_audio(audio)
+
+        # 온셋이 버퍼에 살아있어야 한다 (과거엔 여기서 폐기됐다)
+        assert len(router._pre_speech_buf) == 1
+        assert router._pre_speech_buf[0] == audio
+        # OpenAI로는 아직 silence를 보낸다 (SPEAKING 전환 전)
+        sent = base64.b64decode(router.session_b.send_recipient_audio.call_args[0][0])
+        assert all(b == 0xFF for b in sent)
+
+    @pytest.mark.asyncio
+    async def test_settling_onset_flushed_when_speaking_confirmed(self):
+        """세틀링 중 축적한 온셋이 SPEAKING 확정 후 Session B로 복원된다."""
+        router = _make_router_with_local_vad()
+        router.session_b.send_recipient_audio = AsyncMock()
+        router.local_vad.is_speaking = False
+        self._settling(router)
+
+        onset = bytes([0x10] * 160)
+        await router.handle_twilio_audio(onset)  # 세틀링 중 버퍼링
+        assert len(router._pre_speech_buf) == 1
+
+        # SPEAKING 확정 + 세틀링 만료 (grace 경과)
+        router.local_vad.is_speaking = True
+        router.echo_gate._settling_until = 0.0
+        assert router.echo_gate.is_suppressing is False
+        router.session_b.send_recipient_audio.reset_mock()
+
+        nxt = bytes([0x11] * 160)
+        await router.handle_twilio_audio(nxt)
+
+        # 버퍼(온셋) → 이어서 현재 프레임 순으로 전송, 버퍼는 비워짐
+        sent_all = [base64.b64decode(c[0][0])
+                    for c in router.session_b.send_recipient_audio.call_args_list]
+        assert onset in sent_all, "축적한 온셋이 flush되어 전송돼야 한다"
+        assert len(router._pre_speech_buf) == 0
+
+    @pytest.mark.asyncio
+    async def test_settling_low_energy_frame_keeps_buffer(self):
+        """세틀링 중 저에너지 프레임(발화 간 무음)이 온셋 버퍼를 지우면 안 된다.
+
+        실발화는 에너지가 출렁여 단어 사이에 RMS<200 프레임이 낀다. 그 한
+        프레임에 온셋이 통째로 사라지면 수정이 무력화된다.
+        """
+        router = _make_router_with_local_vad()
+        router.session_b.send_recipient_audio = AsyncMock()
+        router.local_vad.is_speaking = False
+        self._settling(router)
+
+        loud = bytes([0x10] * 160)   # RMS≈3999
+        await router.handle_twilio_audio(loud)   # 온셋 축적
+        assert len(router._pre_speech_buf) == 1
+
+        quiet = bytes([0xFE] * 160)  # RMS≈2 < 200, 단어 사이 무음
+        await router.handle_twilio_audio(quiet)  # 버퍼를 지우면 안 된다
+        assert len(router._pre_speech_buf) == 1, "저에너지 프레임에 온셋이 지워졌다"
+
+    @pytest.mark.asyncio
+    async def test_echo_window_still_discards_onset(self):
+        """에코 윈도우 억제는 기존대로 온셋 폐기 (고에너지도 에코 가능)."""
+        router = _make_router_with_local_vad()
+        router.session_b.send_recipient_audio = AsyncMock()
+        router.local_vad.is_speaking = False
+        router.local_vad.speech_started_at = 0.0  # predates 아님
+        router.echo_gate.in_echo_window = True  # 세틀링 아닌 에코 윈도우
+        router._pre_speech_buf.append(bytes([0x22] * 160))  # 기존 버퍼
+
+        assert router.echo_gate.in_settling is False
+        audio = bytes([0x10] * 160)
+        await router.handle_twilio_audio(audio)
+
+        # 에코 윈도우에서는 버퍼가 폐기돼야 한다 (세틀링과 다른 처리)
+        assert len(router._pre_speech_buf) == 0
+
+    @pytest.mark.asyncio
+    async def test_speech_start_callback_keeps_settling_buffer(self):
+        """_on_local_vad_speech_start가 세틀링 온셋 버퍼를 비우지 않는다."""
+        router = _make_router_with_local_vad()
+        router.session_b.notify_speech_started = AsyncMock()
+        router.echo_gate.break_settling = AsyncMock()
+        router.local_vad.is_speaking = True
+        self._settling(router)  # post_echo=True 상태
+        router._pre_speech_buf.append(bytes([0x10] * 160))  # 축적된 온셋
+
+        await router._on_local_vad_speech_start()
+
+        assert len(router._pre_speech_buf) == 1, "세틀링 온셋이 콜백에서 폐기되면 안 된다"
+
+
 # ===========================================================================
 # TestVoiceToVoiceSessionACallbacks
 # ===========================================================================

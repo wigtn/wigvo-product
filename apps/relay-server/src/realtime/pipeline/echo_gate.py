@@ -98,6 +98,18 @@ class EchoGateManager:
             return False
         return self._in_echo_window or time.time() < self._settling_until
 
+    @property
+    def in_settling(self) -> bool:
+        """세틀링 억제 중인지 (에코 윈도우가 아닌 억제).
+
+        에코 윈도우와 세틀링은 억제의 성격이 다르다. 에코 윈도우는 TTS 재생과
+        겹친 구간이라 고에너지 프레임도 에코일 수 있어 보수적으로 폐기한다.
+        세틀링은 이미 should_process_vad의 RMS 프리게이트(200)로 저에너지 에코를
+        걸러낸 뒤라, 통과한 프레임은 실발화로 봐야 한다 — 그래서 파이프라인은
+        세틀링 중 판별된 온셋을 폐기하지 않고 보존할 수 있다(에코 윈도우와 다른 처리).
+        """
+        return self.is_suppressing and not self._in_echo_window
+
     # --- Public methods ---
 
     def should_process_vad(self, audio_rms: float) -> bool:

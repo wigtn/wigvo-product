@@ -445,7 +445,8 @@ class VoiceToVoicePipeline(BasePipeline):
         # Local VAD 경로: VAD 상태에 따라 실제 오디오 또는 무음을 Session B에 전송
         # SPEAKING 상태: pre-speech buffer flush + 오디오 그대로 전송
         # SILENCE + can_process_vad: pre-speech buffer에 축적 (SPEAKING 전환 시 flush)
-        # Echo window / suppressing: pre-speech buffer 폐기 + 무음 전송
+        # 세틀링 중 저에너지 프레임: 버퍼 유지(발화 간 짧은 무음일 수 있다) + 무음 전송
+        # Echo window: pre-speech buffer 폐기 + 무음 전송
         if self.local_vad is not None:
             audio_rms = _ulaw_rms(effective_audio)
             can_process_vad = self.echo_gate.should_process_vad(audio_rms)
@@ -465,12 +466,25 @@ class VoiceToVoicePipeline(BasePipeline):
                     buf_b64 = base64.b64encode(self._pre_speech_buf.popleft()).decode("ascii")
                     await self.session_b.send_recipient_audio(buf_b64)
                 audio_to_send = effective_audio
-            elif can_process_vad and not self.echo_gate.is_suppressing:
-                # Not speaking yet but audio is clean → buffer for pre-speech
+            elif can_process_vad and (
+                not self.echo_gate.is_suppressing or self.echo_gate.in_settling
+            ):
+                # 아직 SPEAKING은 아니지만 오디오가 깨끗하다 → pre-speech 버퍼에 축적.
+                # 세틀링 중에도 축적한다: should_process_vad의 RMS 프리게이트(200)가
+                # 이미 저에너지 에코를 걸러냈으므로 여기 온 프레임은 실발화 온셋이다.
+                # 폐기하면 인바운드 핸드오프 직후 발신자 발화 앞부분이 잘려 Whisper가
+                # 조각으로 헛것을 만든다(실측 2026-07-20: "Choice.", "first kite").
                 self._pre_speech_buf.append(effective_audio)
                 audio_to_send = bytes([0xFF] * len(effective_audio))
+            elif self.echo_gate.in_settling:
+                # 세틀링 중 저에너지(발화 간 짧은 무음 또는 에코 잔향) → 버퍼는
+                # 유지한다. 실발화는 에너지가 출렁여 단어 사이에 RMS<200 프레임이
+                # 끼는데, 여기서 clear하면 앞서 모은 온셋이 그 한 프레임에 통째로
+                # 사라져 수정이 무력화된다. 저에너지라 새로 축적하진 않고(위 elif가
+                # RMS>200만 받음) 기존 버퍼만 보존한 채 무음을 보낸다.
+                audio_to_send = bytes([0xFF] * len(effective_audio))
             else:
-                # Echo window / suppressing → discard contaminated buffer
+                # Echo window(고에너지도 에코 가능) → 오염 버퍼 폐기
                 self._pre_speech_buf.clear()
                 audio_to_send = bytes([0xFF] * len(effective_audio))
             audio_b64 = base64.b64encode(audio_to_send).decode("ascii")
@@ -671,8 +685,10 @@ class VoiceToVoicePipeline(BasePipeline):
         """Local VAD가 수신자 발화 시작을 감지."""
         post_echo = self.echo_gate.is_suppressing and not self.echo_gate.in_echo_window
         await self.echo_gate.break_settling()  # Settling 해제 (Silero 확인)
-        if post_echo:
-            self._pre_speech_buf.clear()  # settling 시에만 에코 오염 버퍼 폐기
+        # 세틀링 중 버퍼(_pre_speech_buf)는 RMS 프리게이트(200)를 통과한 실발화
+        # 온셋이므로 폐기하지 않는다. 여기서 비우면 방금 축적한 발신자 발화
+        # 앞부분이 사라져 Whisper가 조각으로 헛것을 만든다(실측 2026-07-20 인바운드).
+        # 남은 짧은 에코 잔향은 session_b의 post_echo ≤1단어 필터가 잡는다.
         peak_rms = self.local_vad.peak_rms if self.local_vad else 0.0
         await self._send_pipeline_event("silero_vad", "speech_start", peak_rms=round(peak_rms))
         await self.session_b.notify_speech_started(post_echo=post_echo)

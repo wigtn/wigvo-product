@@ -504,6 +504,7 @@ class SessionAHandler:
                     self._call,
                     name="🚫 Caller STT hallucination filtered",
                     metadata={"session": "A", "text": transcript[:120]},
+                    is_error=True,
                 )
             return
         self._pending_user_stt.append((time.time(), transcript))  # 번역과 순서대로 짝지음

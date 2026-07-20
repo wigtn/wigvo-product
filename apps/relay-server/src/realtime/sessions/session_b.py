@@ -985,6 +985,7 @@ class SessionBHandler:
                         self._call,
                         name="🛑 Hallucination blocked",
                         metadata={"blocked_total": blocked_now},
+                        is_error=True,
                     )
             self._lf_last_blocked_count = self._call.call_metrics.hallucinations_blocked
 

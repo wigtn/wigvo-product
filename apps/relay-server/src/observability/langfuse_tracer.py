@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from contextlib import contextmanager
@@ -25,6 +26,14 @@ if TYPE_CHECKING:
     from src.types import ActiveCall
 
 logger = logging.getLogger(__name__)
+
+# OpenInference 의미 규약 키 — MEGA Loop(및 Arize/Phoenix)가 트레이스를 읽는 표준.
+# Langfuse는 네이티브가 아닌 이 키들을 metadata에 보존하고, MEGA Loop의 Langfuse-REST
+# 리더가 거기서 읽는다. 이게 없으면 readiness가 "root input/ span kind 없음"으로 막힌다.
+_OI_KIND = "openinference.span.kind"        # CHAIN / LLM / TOOL / GUARDRAIL ...
+_OI_INPUT = "input.value"                    # 진입/입력 (fix 재현·감지 근거)
+_OI_INPUT_MIME = "input.mime_type"           # root의 input.value가 JSON임을 표시
+_OI_OUTPUT = "output.value"                  # 번역 출력 (output은 plain text라 mime 생략)
 
 # 방향 → trace 타임라인에 표시될 사람이 읽기 쉬운 라벨
 DIRECTION_LABELS = {
@@ -105,9 +114,19 @@ class LangfuseTracer:
         try:
             mode = call.communication_mode.value if call.communication_mode else "unknown"
             flow = "inbound" if call.inbound else "outbound"
+            # 진입 기술자 — MEGA Loop가 "이 트레이스에 뭐가 들어왔나"를 잡는 input.value.
+            # 실제 진입은 실시간 오디오라 그대로 replay는 불가하지만, 파이프라인을 규정하는
+            # 통화 파라미터를 진입값으로 남겨 readiness의 root-input 요건을 충족한다.
+            entry = {
+                "mode": mode,
+                "flow": flow,
+                "source_language": call.source_language,
+                "target_language": call.target_language,
+            }
             # 루트 observation 이름이 곧 trace 이름이 된다.
             root = self._client.start_observation(
                 name=f"📞 WIGVO Call · {call.source_language}↔{call.target_language} · {mode}",
+                input=entry,
                 metadata={
                     "call_id": call.call_id,
                     "call_sid": call.call_sid,
@@ -117,6 +136,10 @@ class LangfuseTracer:
                     "tenant_id": str(call.tenant_id),
                     "source_language": call.source_language,
                     "target_language": call.target_language,
+                    # OpenInference: 루트는 비-LLM 체인, 진입값을 input.value로
+                    _OI_KIND: "CHAIN",
+                    _OI_INPUT: json.dumps(entry, ensure_ascii=False),
+                    _OI_INPUT_MIME: "application/json",
                 },
             )
             self._roots[call.call_id] = root
@@ -170,6 +193,11 @@ class LangfuseTracer:
             metadata: dict[str, Any] = {"direction": direction}
             if language:
                 metadata["language"] = language
+            # OpenInference: 번역 턴은 STT→번역 LLM 스텝. input/output.value로도 남긴다
+            # (네이티브 input/output과 별개로, MEGA Loop 리더가 이 키를 본다).
+            metadata[_OI_KIND] = "LLM"
+            metadata[_OI_INPUT] = original_text
+            metadata[_OI_OUTPUT] = translated_text
 
             # Per-stage latency under "latency.*"
             if latency_ms is not None:
@@ -212,19 +240,27 @@ class LangfuseTracer:
         *,
         name: str,
         metadata: dict[str, Any] | None = None,
+        is_error: bool = False,
     ) -> None:
         """Record a discrete pipeline moment (hallucination blocked, echo gate
-        block, interrupt/barge-in) as an event observation on the trace."""
+        block, interrupt/barge-in) as an event observation on the trace.
+
+        is_error=True면 span을 ERROR 레벨 + GUARDRAIL kind로 남긴다 — MEGA Loop가
+        실패 신호로 감지하도록(§10 Detection gap: 실패 span은 ERROR여야 잘 잡힌다).
+        """
         if not self._enabled or not call.call_id:
             return
         try:
             root = self._roots.get(call.call_id)
             if root is None:
                 return
+            meta = dict(metadata or {})
+            meta[_OI_KIND] = "GUARDRAIL" if is_error else "CHAIN"
             obs = root.start_observation(
                 name=name,
                 as_type="event",
-                metadata=metadata or {},
+                level="ERROR" if is_error else "DEFAULT",
+                metadata=meta,
             )
             obs.end()
         except Exception:
@@ -260,6 +296,7 @@ class LangfuseTracer:
         if self._enabled:
             try:
                 safe = self._safe_attrs(attrs)
+                safe[_OI_KIND] = "CHAIN"  # OpenInference: 제어 흐름 스팬
                 root = self._roots.get(call_id) if call_id else None
                 if root is not None:
                     obs = root.start_observation(name=name, as_type="span", metadata=safe)

@@ -1,5 +1,6 @@
 'use client';
 
+import Image from 'next/image';
 import { useTranslations } from 'next-intl';
 import { Languages, PhoneCall, ShieldCheck } from 'lucide-react';
 import OAuthButtons from '@/components/auth/OAuthButtons';
@@ -14,7 +15,14 @@ export default function LoginPage() {
       <div className="mx-auto grid min-h-[calc(100dvh-2rem)] max-w-5xl overflow-hidden rounded-2xl border border-[#E4E1E6] bg-white shadow-[0_1px_2px_rgba(31,26,34,.04),0_16px_48px_rgba(31,26,34,.07)] sm:min-h-[calc(100dvh-3rem)] lg:grid-cols-[1.05fr_0.95fr]">
         <section className="hidden flex-col justify-between bg-[#17151A] p-10 text-white lg:flex">
           <div>
-            <span className="wigtn-wordmark wigtn-wordmark--light text-[28px]">WIGTN<span>.</span></span>
+            <Image
+              src="/wigtn-logo-white.png"
+              alt="WIGTN"
+              width={600}
+              height={160}
+              className="h-auto w-[112px]"
+              priority
+            />
             <span className="mt-2 block text-xs font-semibold tracking-[0.1em] text-[#AAA3AE]">WIGVO OPERATIONS</span>
           </div>
           <div className="max-w-md">
@@ -43,7 +51,16 @@ export default function LoginPage() {
           <div className="absolute right-5 top-5"><LanguageSwitcher direction="down" /></div>
           <div className="w-full max-w-sm">
             <div className="mb-10 lg:hidden">
-              <span className="wigtn-wordmark text-[26px]">WIGTN<span>.</span></span>
+              <span className="relative block h-8 w-[116px] overflow-hidden" aria-label="WIGTN">
+                <Image
+                  src="/wigtn-logo-navy.png"
+                  alt="WIGTN"
+                  fill
+                  sizes="116px"
+                  className="object-cover object-center"
+                  priority
+                />
+              </span>
               <span className="mt-1.5 block text-[11px] font-semibold tracking-[0.09em] text-[#8A838D]">WIGVO OPERATIONS</span>
             </div>
             <p className="text-xs font-bold tracking-[0.1em] text-[#6B2EAA]">WIGVO OPERATIONS</p>

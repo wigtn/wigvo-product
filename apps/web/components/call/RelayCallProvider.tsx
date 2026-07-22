@@ -83,6 +83,7 @@ export default function RelayCallProvider({
       callMode: relay.callMode,
       isMuted: relay.isMuted,
       isRecording: relay.isRecording,
+      isRecipientSpeaking: relay.isRecipientSpeaking,
       isPlaying: relay.isPlaying,
       error: relay.error,
     });
@@ -94,6 +95,7 @@ export default function RelayCallProvider({
     relay.callMode,
     relay.isMuted,
     relay.isRecording,
+    relay.isRecipientSpeaking,
     relay.isPlaying,
     relay.error,
     syncState,

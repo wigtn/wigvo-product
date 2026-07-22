@@ -1,10 +1,12 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { AlertTriangle, History, Loader2, RefreshCw } from 'lucide-react';
+import OperationsShell from '@/components/layout/OperationsShell';
 import HistoryList from '@/components/call/HistoryList';
-import { Loader2, AlertTriangle, RefreshCw, Home, Phone } from 'lucide-react';
 import type { Call } from '@/shared/types';
+import { isDemoMode } from '@/lib/demo';
 
 export default function HistoryPage() {
   const router = useRouter();
@@ -20,18 +22,20 @@ export default function HistoryPage() {
     async function fetchCalls() {
       try {
         const res = await fetch('/api/calls');
-
         if (res.status === 401) {
+          if (isDemoMode()) {
+            setCalls([]);
+            setLoading(false);
+            return;
+          }
           router.push('/login');
           return;
         }
-
         if (!res.ok) {
           setError('기록을 불러오는 데 실패했습니다.');
           setLoading(false);
           return;
         }
-
         const data = await res.json();
         setCalls(data.calls || []);
         setLoading(false);
@@ -41,58 +45,47 @@ export default function HistoryPage() {
       }
     }
 
-    fetchCalls();
+    void fetchCalls();
   }, [router]);
 
   return (
-    <div className="page-shell">
-      <div className="mx-auto w-full max-w-3xl px-5 py-8">
-        {/* 헤더 */}
-        <div className="mb-6 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-[#F1F5F9] flex items-center justify-center">
-              <Phone className="size-4 text-[#0F172A]" />
+    <OperationsShell active="history" title="통화 기록" description="인바운드와 아웃바운드 통화 결과를 한곳에서 확인하세요.">
+      <div className="ops-page-frame">
+        <section>
+          <div className="ops-panel-header">
+            <div className="flex items-center gap-2.5">
+              <span className="grid size-8 place-items-center rounded-lg bg-[#F3EEF9] text-[#6B2EAA]"><History className="size-4" /></span>
+              <h2 className="text-sm font-bold text-[#1E1E28]">전체 통화</h2>
             </div>
-            <h1 className="text-xl font-bold text-[#0F172A] tracking-tight">통화 기록</h1>
+            {!loading && !error && <span className="text-xs font-medium text-[#918B98]">{calls.length}건</span>}
           </div>
-          <button
-            onClick={() => router.push('/')}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-[#64748B] hover:text-[#334155] hover:bg-[#F1F5F9] transition-all"
-          >
-            <Home className="size-3.5" />
-            홈
-          </button>
-        </div>
 
-        {/* 콘텐츠 */}
-        {loading ? (
-          <div className="page-card flex flex-col items-center gap-4 py-20">
-            <Loader2 className="size-6 text-[#0F172A] animate-spin" />
-            <p className="text-sm text-[#94A3B8]">기록을 불러오는 중...</p>
-          </div>
-        ) : error ? (
-          <div className="page-card flex flex-col items-center gap-4 py-20">
-            <div className="w-14 h-14 rounded-2xl bg-red-50 flex items-center justify-center">
-              <AlertTriangle className="size-6 text-red-500" />
+          {loading ? (
+            <div className="flex min-h-56 flex-col items-center justify-center gap-3">
+              <Loader2 className="size-5 animate-spin text-[#6B2EAA]" />
+              <p className="text-sm text-[#706A73]">기록을 불러오는 중...</p>
             </div>
-            <div className="text-center">
-              <p className="font-medium text-red-600 text-sm">{error}</p>
-              <p className="mt-1 text-xs text-[#94A3B8]">인터넷 연결을 확인해주세요.</p>
+          ) : error ? (
+            <div className="flex min-h-56 flex-col items-center justify-center gap-3 px-6 text-center">
+              <div className="grid size-11 place-items-center rounded-[10px] bg-[#FAECEB]"><AlertTriangle className="size-5 text-[#A83C3C]" /></div>
+              <div>
+                <p className="text-sm font-semibold text-[#A83C3C]">{error}</p>
+                <p className="mt-1 text-xs text-[#8A838D]">인터넷 연결을 확인해주세요.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => window.location.reload()}
+                className="inline-flex h-9 items-center gap-2 rounded-[8px] border border-[#D1CCD4] bg-white px-3 text-xs font-semibold text-[#5F5A68] hover:border-[#BEB8C4] hover:bg-[#F7F5F8] hover:text-[#1E1E28]"
+              >
+                <RefreshCw className="size-3.5" />
+                새로고침
+              </button>
             </div>
-            <button
-              onClick={() => window.location.reload()}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-medium bg-white border border-[#E2E8F0] text-[#64748B] hover:bg-[#F8FAFC] transition-all"
-            >
-              <RefreshCw className="size-3.5" />
-              새로고침
-            </button>
-          </div>
-        ) : (
-          <div className="page-card p-4">
+          ) : (
             <HistoryList calls={calls} />
-          </div>
-        )}
+          )}
+        </section>
       </div>
-    </div>
+    </OperationsShell>
   );
 }

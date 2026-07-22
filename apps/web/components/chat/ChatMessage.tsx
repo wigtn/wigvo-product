@@ -18,14 +18,14 @@ export default function ChatMessage({ message }: ChatMessageProps) {
     >
       <div
         className={cn(
-          'max-w-[75%] rounded-2xl px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap',
+          'max-w-[82%] rounded-2xl px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap sm:max-w-[72%]',
           isUser
-            ? 'bg-[#0F172A] text-white rounded-br-md'
-            : 'surface-card shadow-sm text-[#334155] rounded-bl-md'
+            ? 'rounded-br-md bg-[#2E2932] text-white'
+            : 'surface-card rounded-bl-md text-[#312C35] shadow-sm'
         )}
       >
         {!isUser && (
-          <div className="text-[10px] text-[#64748B] font-medium mb-1.5 uppercase tracking-wider">
+          <div className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-[#6B2EAA]">
             {t('aiAssistant')}
           </div>
         )}

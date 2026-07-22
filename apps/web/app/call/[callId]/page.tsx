@@ -2,18 +2,20 @@
 
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
+import { Loader2 } from 'lucide-react';
 import { getCall } from '@/lib/api';
 import type { Call } from '@/shared/types';
 import type { CallMode, CommunicationMode } from '@/shared/call-types';
 import RealtimeCallView from '@/components/call/RealtimeCallView';
 import ResultCard from '@/components/call/ResultCard';
-import { Loader2 } from 'lucide-react';
+import OperationsShell from '@/components/layout/OperationsShell';
+
+const callDescription = '통화 연결 상태를 확인하고 실시간으로 응대합니다.';
 
 export default function CallPage() {
   const params = useParams();
   const router = useRouter();
   const callId = params.callId as string;
-
   const [call, setCall] = useState<Call | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -26,83 +28,79 @@ export default function CallPage() {
       try {
         const data = await getCall(callId);
         setCall(data as unknown as Call);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load call');
+      } catch (fetchError) {
+        setError(fetchError instanceof Error ? fetchError.message : 'Failed to load call');
       } finally {
         setLoading(false);
       }
     }
 
-    fetchCall();
+    void fetchCall();
   }, [callId]);
 
   const handleCallEnd = () => {
     setCallEnded(true);
-    // Refresh call data to get the result
-    getCall(callId)
+    void getCall(callId)
       .then((data) => setCall(data as unknown as Call))
-      .catch(() => {});
+      .catch(() => undefined);
   };
 
   if (loading) {
     return (
-      <div className="page-center">
-        <div className="page-card max-w-md flex flex-col items-center gap-3 py-14">
-          <Loader2 className="size-6 text-[#0F172A] animate-spin" />
-          <p className="text-sm text-[#94A3B8]">{'\uD1B5\uD654 \uC815\uBCF4\uB97C \uBD88\uB7EC\uC624\uB294 \uC911...'}</p>
+      <OperationsShell active="outbound" title="아웃바운드 통화" description={callDescription}>
+        <div className="page-card mx-auto flex max-w-md flex-col items-center gap-3 py-14">
+          <Loader2 className="size-6 animate-spin text-[#9B51E0]" />
+          <p className="text-sm text-[#706A73]">통화 정보를 불러오는 중...</p>
         </div>
-      </div>
+      </OperationsShell>
     );
   }
 
   if (error || !call) {
     return (
-      <div className="page-center">
-        <div className="page-card max-w-md text-center px-6 py-12">
-          <p className="text-sm text-red-500 mb-2">{error ?? '\uD1B5\uD654\uB97C \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4'}</p>
-          <button
-            onClick={() => router.push('/')}
-            className="text-sm text-[#64748B] hover:text-[#334155] underline"
-          >
-            {'\uD648\uC73C\uB85C \uB3CC\uC544\uAC00\uAE30'}
+      <OperationsShell active="outbound" title="아웃바운드 통화" description={callDescription}>
+        <div className="page-card mx-auto max-w-md px-6 py-12 text-center">
+          <p className="mb-2 text-sm text-red-500">{error ?? '통화를 찾을 수 없습니다'}</p>
+          <button type="button" onClick={() => router.push('/')} className="text-sm text-[#706A73] underline hover:text-[#6B2EAA]">
+            홈으로 돌아가기
           </button>
         </div>
-      </div>
+      </OperationsShell>
     );
   }
 
-  // If call is already completed/failed, show result
   const isTerminal = call.status === 'COMPLETED' || call.status === 'FAILED';
   if (isTerminal || callEnded) {
     return (
-      <div className="page-center">
-        <div className="w-full max-w-md">
+      <OperationsShell active="history" title="통화 결과" description="종료된 통화의 결과와 요약을 확인합니다.">
+        <div className="mx-auto w-full max-w-2xl">
           <ResultCard call={call} />
         </div>
-      </div>
+      </OperationsShell>
     );
   }
 
-  // Active call with relay WS URL
   if (!call.relayWsUrl) {
     return (
-      <div className="page-center">
-        <div className="page-card max-w-md text-center px-6 py-12">
-          <p className="text-sm text-[#94A3B8]">{'\uD1B5\uD654 \uC5F0\uACB0 \uC815\uBCF4\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4'}</p>
-          <button
-            onClick={() => router.push('/')}
-            className="mt-2 text-sm text-[#64748B] hover:text-[#334155] underline"
-          >
-            {'\uD648\uC73C\uB85C \uB3CC\uC544\uAC00\uAE30'}
+      <OperationsShell active="outbound" title="아웃바운드 통화" description={callDescription}>
+        <div className="page-card mx-auto max-w-md px-6 py-12 text-center">
+          <p className="text-sm text-[#706A73]">통화 연결 정보가 없습니다</p>
+          <button type="button" onClick={() => router.push('/')} className="mt-2 text-sm text-[#706A73] underline hover:text-[#6B2EAA]">
+            홈으로 돌아가기
           </button>
         </div>
-      </div>
+      </OperationsShell>
     );
   }
 
   return (
-    <div className="page-center">
-      <div className="page-card w-full max-w-md h-[80vh] p-3">
+    <OperationsShell
+      active="outbound"
+      title="아웃바운드 통화"
+      description={call.targetName ? `${call.targetName} 통화 중` : '실시간 통화 중'}
+      workspace
+    >
+      <div className="h-full min-h-0">
         <RealtimeCallView
           callId={callId}
           relayWsUrl={call.relayWsUrl}
@@ -112,6 +110,6 @@ export default function CallPage() {
           onCallEnd={handleCallEnd}
         />
       </div>
-    </div>
+    </OperationsShell>
   );
 }

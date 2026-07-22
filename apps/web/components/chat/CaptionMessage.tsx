@@ -20,23 +20,21 @@ export default function CaptionMessage({ entry }: CaptionMessageProps) {
     : t('recipient');
 
   return (
-    <div className={cn('flex w-full mb-3', isUser ? 'justify-end' : 'justify-start')}>
+    <div className={cn('mb-3 flex w-full', isUser || isAi ? 'justify-end' : 'justify-start')}>
       <div
         className={cn(
-          'max-w-[75%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed',
-          isUser
-            ? 'bg-[#0F172A] text-white rounded-br-md'
+          'max-w-[82%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed sm:max-w-[72%]',
+          isUser || isAi
+            ? 'rounded-br-md bg-[#2E2932] text-white'
             : isStage1
-              ? 'bg-[#F1F5F9] text-[#94A3B8] rounded-bl-md border border-[#E2E8F0]'
-              : isAi
-                ? 'bg-teal-50 text-[#334155] rounded-bl-md border border-teal-100'
-                : 'bg-white text-[#334155] rounded-bl-md border border-[#E2E8F0] shadow-sm',
+              ? 'rounded-bl-md border border-[#E4E1E6] bg-[#F0EEF1] text-[#8A838D]'
+              : 'rounded-bl-md border border-[#E4E1E6] bg-white text-[#312C35] shadow-sm',
           !entry.isFinal && 'opacity-60',
         )}
       >
         <div className={cn(
           'text-[10px] font-medium mb-1 uppercase tracking-wider',
-          isUser ? 'text-white/60' : 'text-[#94A3B8]',
+          isUser || isAi ? 'text-white/60' : 'text-[#8A838D]',
         )}>
           {speakerLabel}
         </div>

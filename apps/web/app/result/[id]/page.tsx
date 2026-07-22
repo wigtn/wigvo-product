@@ -3,6 +3,7 @@
 import { useParams, useRouter } from 'next/navigation';
 import { useState, useEffect, useRef } from 'react';
 import ResultCard from '@/components/call/ResultCard';
+import OperationsShell from '@/components/layout/OperationsShell';
 import { Loader2, AlertTriangle, RefreshCw, Home } from 'lucide-react';
 import type { Call } from '@/shared/types';
 
@@ -53,25 +54,25 @@ export default function ResultPage() {
 
   if (loading) {
     return (
-      <div className="page-center">
+      <OperationsShell active="history" title="통화 결과" description="종료된 통화의 결과와 요약을 확인합니다.">
         <div className="page-card max-w-md flex flex-col items-center gap-4 py-16">
-          <Loader2 className="size-6 text-[#0F172A] animate-spin" />
-          <p className="text-sm text-[#94A3B8]">결과를 불러오는 중...</p>
+          <Loader2 className="size-6 animate-spin text-[#9B51E0]" />
+          <p className="text-sm text-[#706A73]">결과를 불러오는 중...</p>
         </div>
-      </div>
+      </OperationsShell>
     );
   }
 
   if (error || !call) {
     return (
-      <div className="page-center">
+      <OperationsShell active="history" title="통화 결과" description="종료된 통화의 결과와 요약을 확인합니다.">
         <div className="page-card mx-auto flex w-full max-w-md flex-col items-center gap-5 px-5 py-10 text-center">
           <div className="w-14 h-14 rounded-2xl bg-red-50 flex items-center justify-center">
             <AlertTriangle className="size-6 text-red-500" />
           </div>
           <div>
-            <h2 className="text-lg font-bold text-[#0F172A]">오류 발생</h2>
-            <p className="mt-1.5 text-sm text-[#94A3B8]">
+            <h2 className="text-lg font-bold text-[#211D24]">오류 발생</h2>
+            <p className="mt-1.5 text-sm text-[#706A73]">
               {error || '알 수 없는 오류가 발생했습니다.'}
             </p>
           </div>
@@ -83,29 +84,29 @@ export default function ResultPage() {
                 setError(null);
                 window.location.reload();
               }}
-              className="w-full h-11 rounded-xl flex items-center justify-center gap-2 text-sm font-medium bg-[#0F172A] text-white hover:bg-[#1E293B] transition-all shadow-sm"
+              className="flex h-11 w-full items-center justify-center gap-2 rounded-[10px] bg-[#1E1E28] text-sm font-semibold text-white transition-colors hover:bg-[#15151E]"
             >
               <RefreshCw className="size-4" />
               다시 시도
             </button>
             <button
               onClick={() => router.push('/')}
-              className="w-full h-11 rounded-xl flex items-center justify-center gap-2 text-sm font-medium text-[#94A3B8] hover:text-[#64748B] hover:bg-[#F1F5F9] transition-all"
+              className="flex h-11 w-full items-center justify-center gap-2 rounded-[10px] text-sm font-semibold text-[#706A73] transition-colors hover:bg-[#F5F0F8] hover:text-[#6B2EAA]"
             >
               <Home className="size-4" />
               홈으로 돌아가기
             </button>
           </div>
         </div>
-      </div>
+      </OperationsShell>
     );
   }
 
   return (
-    <div className="page-center">
-      <div className="mx-auto w-full max-w-md">
+    <OperationsShell active="history" title="통화 결과" description="종료된 통화의 결과와 요약을 확인합니다.">
+      <div className="mx-auto w-full max-w-2xl">
         <ResultCard call={call} />
       </div>
-    </div>
+    </OperationsShell>
   );
 }

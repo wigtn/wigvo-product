@@ -4,6 +4,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { useState, useEffect, useRef } from 'react';
 import { useCallPolling } from '@/hooks/useCallPolling';
 import CallingStatus from '@/components/call/CallingStatus';
+import OperationsShell from '@/components/layout/OperationsShell';
 import { Loader2, AlertTriangle, RefreshCw, Home } from 'lucide-react';
 
 export default function CallingPage() {
@@ -53,48 +54,48 @@ export default function CallingPage() {
 
   if (error) {
     return (
-      <div className="page-center">
+      <OperationsShell active="outbound" title="통화 연결" description="상대방 연결 상태를 확인합니다.">
         <div className="page-card mx-auto flex w-full max-w-md flex-col items-center gap-5 px-5 py-10 text-center">
           <div className="w-14 h-14 rounded-2xl bg-red-50 flex items-center justify-center">
             <AlertTriangle className="size-6 text-red-500" />
           </div>
           <div>
-            <h2 className="text-lg font-bold text-[#0F172A]">연결 오류</h2>
-            <p className="mt-1.5 text-sm text-[#94A3B8]">{error}</p>
+            <h2 className="text-lg font-bold text-[#211D24]">연결 오류</h2>
+            <p className="mt-1.5 text-sm text-[#706A73]">{error}</p>
           </div>
           <div className="flex w-full flex-col gap-2">
             <button
               onClick={() => window.location.reload()}
-              className="w-full h-11 rounded-xl flex items-center justify-center gap-2 text-sm font-medium bg-[#0F172A] text-white hover:bg-[#1E293B] transition-all shadow-sm"
+              className="flex h-11 w-full items-center justify-center gap-2 rounded-[10px] bg-[#1E1E28] text-sm font-semibold text-white transition-colors hover:bg-[#15151E]"
             >
               <RefreshCw className="size-4" />
               다시 시도
             </button>
             <button
               onClick={() => router.push('/')}
-              className="w-full h-11 rounded-xl flex items-center justify-center gap-2 text-sm font-medium text-[#94A3B8] hover:text-[#64748B] hover:bg-[#F1F5F9] transition-all"
+              className="flex h-11 w-full items-center justify-center gap-2 rounded-[10px] text-sm font-semibold text-[#706A73] transition-colors hover:bg-[#F5F0F8] hover:text-[#6B2EAA]"
             >
               <Home className="size-4" />
               홈으로 돌아가기
             </button>
           </div>
         </div>
-      </div>
+      </OperationsShell>
     );
   }
 
   return (
-    <div className="page-center">
+    <OperationsShell active="outbound" title="통화 연결" description="상대방 연결 상태를 확인합니다.">
       <div className="mx-auto w-full max-w-md">
         {loading && !call ? (
           <div className="page-card flex flex-col items-center gap-4 py-16">
-            <Loader2 className="size-8 text-[#0F172A] animate-spin" />
-            <p className="text-sm text-[#94A3B8]">통화 정보를 불러오는 중...</p>
+            <Loader2 className="size-8 animate-spin text-[#9B51E0]" />
+            <p className="text-sm text-[#706A73]">통화 정보를 불러오는 중...</p>
           </div>
         ) : (
           <CallingStatus call={call} elapsed={elapsed} />
         )}
       </div>
-    </div>
+    </OperationsShell>
   );
 }

@@ -6,7 +6,7 @@ import { useTranslations } from 'next-intl';
 import { createClient } from '@/lib/supabase/client';
 import { Loader2, Mail, Lock } from 'lucide-react';
 
-export default function LoginForm() {
+export default function LoginForm({ showSignup = false }: { showSignup?: boolean }) {
   const router = useRouter();
   const t = useTranslations('login');
   const [email, setEmail] = useState('');
@@ -52,36 +52,36 @@ export default function LoginForm() {
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
+    <form onSubmit={handleSubmit} className="space-y-3">
       {/* 이메일 */}
       <div className="relative">
-        <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 size-4 text-[#94A3B8]" />
+        <Mail className="absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-[#8A838D]" />
         <input
           type="email"
           placeholder={t('email')}
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           required
-          className="w-full pl-11 pr-4 h-12 rounded-xl bg-white border border-[#E2E8F0] text-[#0F172A] text-sm placeholder:text-[#94A3B8] focus:outline-none focus:border-[#94A3B8] focus:ring-2 focus:ring-[#F1F5F9] transition-all"
+          className="h-12 w-full rounded-[9px] border border-[#D1CCD4] bg-white pl-11 pr-4 text-sm text-[#211D24] transition-colors placeholder:text-[#9A939E] hover:border-[#BBB5BE] focus:border-[#9B51E0] focus:outline-none focus:ring-2 focus:ring-[#F1E7FA]"
         />
       </div>
 
       {/* 비밀번호 */}
       <div className="relative">
-        <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 size-4 text-[#94A3B8]" />
+        <Lock className="absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-[#8A838D]" />
         <input
           type="password"
           placeholder={t('password')}
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           required
-          className="w-full pl-11 pr-4 h-12 rounded-xl bg-white border border-[#E2E8F0] text-[#0F172A] text-sm placeholder:text-[#94A3B8] focus:outline-none focus:border-[#94A3B8] focus:ring-2 focus:ring-[#F1F5F9] transition-all"
+          className="h-12 w-full rounded-[9px] border border-[#D1CCD4] bg-white pl-11 pr-4 text-sm text-[#211D24] transition-colors placeholder:text-[#9A939E] hover:border-[#BBB5BE] focus:border-[#9B51E0] focus:outline-none focus:ring-2 focus:ring-[#F1E7FA]"
         />
       </div>
 
       {/* 에러 */}
       {error && (
-        <p className="text-sm text-red-600 text-center bg-red-50 border border-red-200 py-2 px-3 rounded-xl">
+        <p className="rounded-[9px] border border-[#EECACA] bg-[#FAECEB] px-3 py-2 text-center text-sm text-[#A83C3C]">
           {error}
         </p>
       )}
@@ -90,7 +90,7 @@ export default function LoginForm() {
       <button
         type="submit"
         disabled={isLoading}
-        className="w-full h-12 bg-[#0F172A] hover:bg-[#1E293B] text-white font-medium rounded-xl transition-all disabled:opacity-50 shadow-sm flex items-center justify-center gap-2"
+        className="flex h-12 w-full items-center justify-center gap-2 rounded-[9px] bg-[#1E1E28] text-sm font-bold text-white transition-colors hover:bg-[#15151E] disabled:opacity-50"
       >
         {isLoading ? (
           <>
@@ -103,12 +103,12 @@ export default function LoginForm() {
       </button>
 
       {/* 회원가입 */}
-      <p className="text-center text-sm text-[#94A3B8]">
-        {t('noAccount')}{' '}
-        <a href="/signup" className="text-[#0F172A] font-medium hover:underline">
-          {t('signUp')}
-        </a>
-      </p>
+      {showSignup && (
+        <p className="text-center text-sm text-[#8A838D]">
+          {t('noAccount')}{' '}
+          <a href="/signup" className="font-semibold text-[#6B2EAA] hover:underline">{t('signUp')}</a>
+        </p>
+      )}
     </form>
   );
 }

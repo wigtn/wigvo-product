@@ -175,7 +175,7 @@ export default function CallSummaryPanel({ call, onNewChat }: CallSummaryPanelPr
               const { resetCalling, setActiveMenu } = useDashboard.getState();
               resetCalling();
               setActiveMenu('conversations');
-              router.push('/');
+              router.push('/history');
             }}
             className="w-full h-11 rounded-xl flex items-center justify-center gap-2 text-sm font-medium bg-white border border-[#E2E8F0] text-[#334155] hover:bg-[#F8FAFC] transition-all"
           >

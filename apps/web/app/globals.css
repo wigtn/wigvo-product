@@ -1,3 +1,4 @@
+@import url("https://cdn.jsdelivr.net/gh/sun-typeface/SUIT@2/fonts/variable/woff2/SUIT-Variable.css");
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
@@ -7,8 +8,8 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: "SUIT Variable", SUIT, "Noto Sans KR", "Apple SD Gothic Neo", system-ui, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -49,24 +50,42 @@
 
 :root {
   --radius: 0.625rem;
+  --wigvo-ink: #1E1E28;
+  --wigvo-ink-deep: #15151E;
+  --wigvo-muted: #686375;
+  --wigvo-subtle: #918B98;
+  --wigvo-line: #E3E0E8;
+  --wigvo-line-strong: #CEC9D4;
+  --wigvo-canvas: #F6F5F7;
+  --wigvo-paper: #FFFFFF;
+  --wigvo-soft: #FAF9FB;
+  --wigvo-brand: #9B51E0;
+  --wigvo-brand-dark: #6B2EAA;
+  --wigvo-brand-deep: #51327E;
+  --wigvo-brand-soft: #F3EEF9;
+  --wigvo-brand-muted: #D8C9EA;
+  --wigvo-success: #247353;
+  --wigvo-success-soft: #EDF6F1;
+  --wigvo-red: #A83C3C;
+  --wigvo-red-soft: #FAECEB;
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
   --card-foreground: oklch(0.145 0 0);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
+  --primary: #6B2EAA;
+  --primary-foreground: #FFFFFF;
   --secondary: oklch(0.97 0 0);
   --secondary-foreground: oklch(0.205 0 0);
   --muted: oklch(0.97 0 0);
   --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
+  --accent: #F3EEF9;
+  --accent-foreground: #51327E;
   --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
+  --border: #E3E0E8;
+  --input: #CEC9D4;
+  --ring: #9B51E0;
   --chart-1: oklch(0.646 0.222 41.116);
   --chart-2: oklch(0.6 0.118 184.704);
   --chart-3: oklch(0.398 0.07 227.392);
@@ -122,57 +141,58 @@
   }
   body {
     @apply bg-background text-foreground;
+    font-family: "SUIT Variable", SUIT, "Noto Sans KR", "Apple SD Gothic Neo", system-ui, sans-serif;
+    font-weight: 450;
+    letter-spacing: -0.012em;
+  }
+  button, input, textarea, select { font: inherit; }
+  button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible {
+    outline: 2px solid var(--wigvo-brand);
+    outline-offset: 2px;
   }
 }
 
-/* ── ElevenLabs-style Light Mode Utilities ── */
+/* ── WIGVO product surfaces ── */
 .glow-accent {
-  box-shadow: 0 0 24px rgba(15, 23, 42, 0.06), 0 0 64px rgba(15, 23, 42, 0.03);
+  box-shadow: 0 1px 2px rgba(31, 26, 34, 0.04), 0 8px 22px rgba(31, 26, 34, 0.035);
 }
 .surface-card {
-  background: #FFFFFF;
-  border: 1px solid #E2E8F0;
+  background: var(--wigvo-paper);
+  border: 1px solid var(--wigvo-line);
 }
 .text-gradient {
-  color: #0f766e;
+  color: var(--wigvo-brand-dark);
 }
 .styled-scrollbar::-webkit-scrollbar { width: 4px; }
 .styled-scrollbar::-webkit-scrollbar-track { background: transparent; }
-.styled-scrollbar::-webkit-scrollbar-thumb { background: rgba(71, 85, 105, 0.2); border-radius: 4px; }
-.styled-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(71, 85, 105, 0.34); }
+.styled-scrollbar::-webkit-scrollbar-thumb { background: rgba(112, 106, 115, 0.24); border-radius: 4px; }
+.styled-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(112, 106, 115, 0.4); }
 
-/* Dashboard layered surface */
 .dashboard-shell {
-  background: #dfe7f2;
+  background: var(--wigvo-canvas);
 }
 
 .dashboard-panel {
-  background: rgba(244, 248, 255, 0.58);
-  border: 1px solid rgba(255, 255, 255, 0.82);
-  box-shadow: 0 16px 36px rgba(9, 15, 26, 0.14);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
+  background: var(--wigvo-paper);
+  border: 1px solid var(--wigvo-line);
+  box-shadow: 0 1px 2px rgba(30, 30, 40, 0.035), 0 6px 18px rgba(30, 30, 40, 0.025);
 }
 
 .glass-surface {
-  background: rgba(244, 248, 255, 0.48);
-  border: 1px solid rgba(255, 255, 255, 0.78);
-  box-shadow: 0 10px 24px rgba(9, 15, 26, 0.11);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
+  background: var(--wigvo-paper);
+  border: 1px solid var(--wigvo-line);
+  box-shadow: 0 1px 2px rgba(31, 26, 34, 0.035);
 }
 
 .glass-surface-selected {
-  background: rgba(230, 237, 248, 0.8);
-  border: 1px solid rgba(34, 48, 72, 0.72);
-  box-shadow:
-    0 0 0 1px rgba(34, 48, 72, 0.45),
-    0 10px 22px rgba(11, 19, 36, 0.16);
+  background: var(--wigvo-brand-soft);
+  border: 1px solid var(--wigvo-brand);
+  box-shadow: 0 0 0 3px rgba(155, 81, 224, 0.1);
 }
 
 .page-shell {
   min-height: 100vh;
-  background: #e4ebf4;
+  background: var(--wigvo-canvas);
 }
 
 .page-center {
@@ -185,10 +205,167 @@
 
 .page-card {
   width: 100%;
-  background: rgba(248, 251, 255, 0.92);
-  border: 1px solid rgba(255, 255, 255, 0.86);
-  border-radius: 1rem;
-  box-shadow: 0 10px 28px rgba(9, 15, 26, 0.12);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
+  background: var(--wigvo-paper);
+  border: 1px solid var(--wigvo-line);
+  border-radius: 0.75rem;
+  box-shadow: 0 1px 2px rgba(31, 26, 34, 0.04), 0 8px 22px rgba(31, 26, 34, 0.035);
+}
+
+.ops-shell {
+  display: flex;
+  width: 100%;
+  height: 100dvh;
+  overflow: hidden;
+  background: var(--wigvo-canvas);
+  color: var(--wigvo-ink);
+}
+
+.ops-topbar {
+  min-height: 72px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0 2rem;
+  border-bottom: 1px solid var(--wigvo-line);
+  background: rgba(255, 255, 255, 0.94);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.ops-main {
+  min-height: 0;
+  flex: 1;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+
+.ops-main--workspace { overflow: hidden; }
+
+.ops-content {
+  width: min(100%, 1540px);
+  min-height: calc(100dvh - 72px - 104px);
+  margin: 0 auto;
+  padding: 1.25rem 1.5rem 2rem;
+}
+
+.ops-content--workspace {
+  width: 100%;
+  height: calc(100dvh - 72px);
+  min-height: 0;
+}
+
+.ops-page-frame {
+  width: 100%;
+  max-width: 72rem;
+  margin-inline: auto;
+}
+
+.ops-page-frame--workspace {
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.ops-panel-header {
+  min-height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  border-bottom: 1px solid var(--wigvo-line);
+}
+
+.ops-panel-body {
+  padding: 0;
+}
+
+.ops-subsection {
+  padding-block: 1rem;
+}
+
+.ops-subsection + .ops-subsection { border-top: 1px solid var(--wigvo-line); }
+
+.ops-list-row {
+  padding: 0.875rem 0;
+}
+
+.ops-footer {
+  min-height: 76px;
+  margin: 0 1.5rem 1rem;
+  padding: 0 0.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.5rem;
+  border-top: 1px solid #DCD8DF;
+  color: var(--wigvo-muted);
+  font-size: 0.75rem;
+}
+
+.wigtn-wordmark {
+  display: inline-block;
+  color: #1E1E28;
+  font-size: 1.45rem;
+  font-weight: 850;
+  letter-spacing: -0.045em;
+  line-height: 1;
+}
+
+.wigtn-wordmark span { color: var(--wigvo-brand); }
+.wigtn-wordmark--light { color: #F5F1F8; }
+
+.voice-signal-bars {
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  color: var(--wigvo-brand);
+}
+
+.voice-signal-bars i {
+  width: 3px;
+  border-radius: 999px;
+  background: currentColor;
+  opacity: 0.28;
+  transform: scaleY(0.55);
+  transform-origin: center;
+}
+
+.voice-signal-bars.is-active i {
+  opacity: 0.78;
+  animation: wigvo-voice-level 0.9s ease-in-out infinite alternate;
+}
+
+.voice-signal-bars.is-active i:nth-child(2n) { animation-delay: -0.35s; }
+.voice-signal-bars.is-active i:nth-child(3n) { animation-delay: -0.62s; }
+.voice-signal-bars--green { color: var(--wigvo-success); }
+.voice-signal-bars--neutral { color: var(--wigvo-muted); }
+.voice-signal-bars.is-compact { height: 24px; transform: scale(0.82); }
+
+@keyframes wigvo-voice-level {
+  from { opacity: 0.38; transform: scaleY(0.42); }
+  to { opacity: 0.9; transform: scaleY(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .voice-signal-bars.is-active i {
+    animation: none;
+    opacity: 0.72;
+    transform: scaleY(0.72);
+  }
+}
+
+@media (max-width: 1023px) {
+  .ops-topbar { padding: 0 1rem; }
+  .ops-content { padding: 1rem 0.75rem 2rem; }
+  .ops-footer { margin-inline: 0.75rem; }
+}
+
+@media (max-width: 640px) {
+  .ops-topbar { min-height: 60px; }
+  .ops-content { min-height: calc(100dvh - 60px - 104px); padding-top: 0.75rem; }
+  .ops-content--workspace { height: calc(100dvh - 60px); }
+  .ops-footer { min-height: 80px; flex-direction: column; align-items: flex-start; justify-content: center; gap: 0.5rem; }
 }

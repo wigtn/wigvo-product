@@ -39,48 +39,48 @@ export default function CallStatusBar({
   const isActive = callStatus === 'connected' || callStatus === 'waiting';
 
   return (
-    <div className="flex items-center justify-between px-4 py-3 border-b border-[#E2E8F0]/80 bg-white/12">
-      <div className="flex items-center gap-3">
+    <div className="flex min-h-[72px] items-center justify-between gap-4 border-b border-[#E4E1E6] bg-white px-4 sm:px-5">
+      <div className="flex min-w-0 items-center gap-3">
         <div
-          className={`flex h-8 w-8 items-center justify-center rounded-lg ${
-            isActive ? 'bg-teal-50' : 'bg-[#F1F5F9]'
+          className={`flex size-10 shrink-0 items-center justify-center rounded-full ${
+            isActive ? 'bg-[#EDF6F1]' : 'bg-[#F0EEF1]'
           }`}
         >
           <Phone
             className={`size-4 ${
-              isActive ? 'text-teal-600' : 'text-[#94A3B8]'
+              isActive ? 'text-[#247353]' : 'text-[#8A838D]'
             }`}
           />
         </div>
-        <div>
-          <div className="flex items-center gap-2">
+        <div className="min-w-0">
+          <div className="flex min-w-0 items-center gap-2">
             {targetName && (
-              <span className="text-sm font-semibold text-[#0F172A]">
+              <span className="truncate text-sm font-bold text-[#211D24] sm:text-base">
                 {targetName}
               </span>
             )}
             <span
-              className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${
+              className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-bold ${
                 callMode === 'agent'
-                  ? 'bg-purple-50 text-purple-600'
-                  : 'bg-blue-50 text-blue-600'
+                  ? 'bg-[#F3EEF9] text-[#6B2EAA]'
+                  : 'bg-[#EEEAF0] text-[#625D65]'
               }`}
             >
-              {callMode === 'agent' ? 'AI' : 'Relay'}
+              {callMode === 'agent' ? 'AI AGENT' : 'RELAY'}
             </span>
           </div>
-          <div className="flex items-center gap-1.5">
+          <div className="mt-1 flex items-center gap-1.5">
             {isActive && (
-              <span className="inline-block h-1.5 w-1.5 rounded-full bg-teal-500 animate-pulse" />
+              <span className="inline-block size-1.5 animate-pulse rounded-full bg-[#247353]" />
             )}
-            <span className="text-xs text-[#94A3B8]">
+            <span className="text-xs text-[#706A73]">
               {getStatusLabel(callStatus)}
             </span>
           </div>
         </div>
       </div>
 
-      <span className="font-mono text-lg font-bold tabular-nums text-[#0F172A]">
+      <span className="shrink-0 font-mono text-base font-bold tabular-nums text-[#211D24] sm:text-lg">
         {formatDuration(callDuration)}
       </span>
     </div>

@@ -63,8 +63,8 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
   const canSend = !disabled && value.trim().length > 0;
 
   return (
-    <div className="px-4 py-3 border-t border-[#E2E8F0] bg-white pb-[calc(0.75rem+env(safe-area-inset-bottom,0px))]">
-      <div className="flex items-end gap-2 bg-[#F8FAFC] border border-[#E2E8F0] rounded-xl px-3 py-2 focus-within:border-[#94A3B8] focus-within:ring-2 focus-within:ring-[#F1F5F9] transition-all">
+    <div className="border-t border-[#E4E1E6] bg-white px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom,0px))]">
+      <div className="flex items-end gap-2 rounded-[9px] border border-[#D1CCD4] bg-white px-3 py-2 transition-all focus-within:border-[#9B51E0] focus-within:ring-3 focus-within:ring-[#F3EEF9]">
         <textarea
           ref={textareaRef}
           value={value}
@@ -73,15 +73,15 @@ const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput
           placeholder={resolvedPlaceholder}
           disabled={disabled}
           rows={1}
-          className="flex-1 resize-none bg-transparent text-sm text-[#0F172A] placeholder:text-[#94A3B8] focus:outline-none disabled:opacity-40 disabled:cursor-not-allowed py-1"
+          className="flex-1 resize-none bg-transparent py-1 text-sm text-[#211D24] placeholder:text-[#9A939E] focus:outline-none disabled:cursor-not-allowed disabled:opacity-40"
         />
         <button
           onClick={handleSend}
           disabled={!canSend}
           className={`shrink-0 w-8 h-8 rounded-lg flex items-center justify-center transition-all duration-200 ${
             canSend
-              ? 'bg-[#0F172A] hover:bg-[#1E293B] text-white shadow-sm'
-              : 'bg-[#E2E8F0] text-[#CBD5E1] cursor-not-allowed'
+              ? 'bg-[#6B2EAA] hover:bg-[#51327E] text-white shadow-sm'
+              : 'bg-[#E4E1E6] text-[#AAA3AE] cursor-not-allowed'
           }`}
         >
           <ArrowUp className="size-4" />

@@ -1,11 +1,9 @@
 'use client';
 
-import dynamic from 'next/dynamic';
 import { useTranslations } from 'next-intl';
 import { type Call } from '@/shared/types';
-import { PhoneOff } from 'lucide-react';
-
-const Orb = dynamic(() => import('@/components/ui/Orb'), { ssr: false });
+import { Phone, PhoneOff } from 'lucide-react';
+import VoiceSignal from '@/components/call/VoiceSignal';
 
 interface CallingStatusProps {
   call: Call | null;
@@ -33,20 +31,16 @@ export default function CallingStatus({ call, elapsed }: CallingStatusProps) {
 
   return (
     <div className="flex flex-col items-center justify-center h-full gap-6 px-6">
-      {/* Orb 영역 */}
       {!isTerminal ? (
-        <div className="w-72 h-72">
-          <Orb
-            hue={160}
-            hoverIntensity={0.5}
-            rotateOnHover={true}
-            forceHoverState={true}
-            backgroundColor="transparent"
-          />
+        <div className="grid size-24 place-items-center rounded-[24px] border border-[#E2D9EA] bg-[#F6F0FB]">
+          <div className="grid gap-2 text-center text-[#7B3BB6]">
+            <Phone className="mx-auto size-6" strokeWidth={1.8} />
+            <VoiceSignal active tone="purple" compact />
+          </div>
         </div>
       ) : (
-        <div className="flex h-20 w-20 items-center justify-center rounded-full border-2 border-[#E2E8F0] bg-[#F8FAFC]">
-          <PhoneOff className="size-7 text-[#64748B]" />
+        <div className="flex size-20 items-center justify-center rounded-[20px] border border-[#E4E1E6] bg-[#F5F4F6]">
+          <PhoneOff className="size-7 text-[#706A73]" />
         </div>
       )}
 
@@ -55,7 +49,7 @@ export default function CallingStatus({ call, elapsed }: CallingStatusProps) {
         <p className="text-sm font-medium mb-1 text-[#64748B]">
           {statusLabel}
           {!isTerminal && (
-            <span className="ml-1.5 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-teal-500 align-middle" />
+            <span className="ml-1.5 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-[#9B51E0] align-middle" />
           )}
         </p>
         {call?.targetName && (
@@ -94,24 +88,24 @@ export default function CallingStatus({ call, elapsed }: CallingStatusProps) {
             return (
               <div key={label} className="flex items-center gap-2">
                 {i > 0 && (
-                  <div className={`w-6 h-px ${isDone ? 'bg-teal-300' : 'bg-[#E2E8F0]'}`} />
+                  <div className={`w-6 h-px ${isDone ? 'bg-[#C9A5E9]' : 'bg-[#E4E1E6]'}`} />
                 )}
                 <div className="flex items-center gap-1.5">
                   <div
                     className={`w-2 h-2 rounded-full transition-colors ${
                       isActive
-                        ? 'bg-[#0F172A] animate-pulse'
+                        ? 'bg-[#9B51E0] animate-pulse'
                         : isDone
-                          ? 'bg-teal-500'
-                          : 'bg-[#E2E8F0]'
+                          ? 'bg-[#7B3BB6]'
+                          : 'bg-[#E4E1E6]'
                     }`}
                   />
                   <span className={`text-xs ${
                     isActive
-                      ? 'font-medium text-[#0F172A]'
+                      ? 'font-medium text-[#211D24]'
                       : isDone
-                        ? 'text-teal-600'
-                        : 'text-[#CBD5E1]'
+                        ? 'text-[#7B3BB6]'
+                        : 'text-[#AAA4AC]'
                   }`}>
                     {label}
                   </span>

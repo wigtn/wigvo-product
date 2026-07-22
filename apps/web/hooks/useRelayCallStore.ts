@@ -1,7 +1,7 @@
 'use client';
 
 import { create } from 'zustand';
-import type { CallMode, CaptionEntry, CommunicationMode } from '@/shared/call-types';
+import type { CallMode, CaptionEntry } from '@/shared/call-types';
 import type { Call } from '@/shared/types';
 
 export interface EventLogEntry {
@@ -36,6 +36,7 @@ interface RelayCallStoreState {
   callMode: CallMode;
   isMuted: boolean;
   isRecording: boolean;
+  isRecipientSpeaking: boolean;
   isPlaying: boolean;
   error: string | null;
   metrics: CallMetrics | null;
@@ -70,6 +71,7 @@ const initialState = {
   callMode: 'agent' as CallMode,
   isMuted: false,
   isRecording: false,
+  isRecipientSpeaking: false,
   isPlaying: false,
   error: null as string | null,
   metrics: null as CallMetrics | null,

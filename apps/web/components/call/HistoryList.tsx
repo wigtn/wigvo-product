@@ -17,13 +17,16 @@ interface StatusBadge {
 }
 
 function getStatusBadge(status: CallStatus): StatusBadge {
-  if (status === 'COMPLETED' || status === 'FAILED') {
-    return { label: '종료', dotColor: 'bg-[#94A3B8]', bg: 'bg-[#F1F5F9]', text: 'text-[#64748B]' };
+  if (status === 'COMPLETED') {
+    return { label: '완료', dotColor: 'bg-[#247353]', bg: 'bg-[#EDF6F1]', text: 'text-[#247353]' };
+  }
+  if (status === 'FAILED') {
+    return { label: '실패', dotColor: 'bg-[#A83C3C]', bg: 'bg-[#FAECEB]', text: 'text-[#A83C3C]' };
   }
   if (status === 'CALLING' || status === 'IN_PROGRESS') {
-    return { label: '통화중', dotColor: 'bg-[#0F172A] animate-pulse', bg: 'bg-[#F1F5F9]', text: 'text-[#0F172A]' };
+    return { label: '통화 중', dotColor: 'bg-[#9B51E0] animate-pulse', bg: 'bg-[#F3EEF9]', text: 'text-[#6B2EAA]' };
   }
-  return { label: '대기', dotColor: 'bg-amber-500', bg: 'bg-amber-50', text: 'text-amber-700' };
+  return { label: '대기', dotColor: 'bg-[#9A5D16]', bg: 'bg-[#FBF1DE]', text: 'text-[#9A5D16]' };
 }
 
 function getRequestTypeLabel(type: string): string {
@@ -37,10 +40,10 @@ function getRequestTypeLabel(type: string): string {
 
 function getRequestTypeIcon(type: string): ReactNode {
   switch (type) {
-    case 'RESERVATION': return <Calendar className="size-4 text-[#64748B]" />;
-    case 'INQUIRY': return <HelpCircle className="size-4 text-[#64748B]" />;
-    case 'CONFIRMATION': return <Search className="size-4 text-[#64748B]" />;
-    default: return <Phone className="size-4 text-[#64748B]" />;
+    case 'RESERVATION': return <Calendar className="size-4 text-[#6B2EAA]" />;
+    case 'INQUIRY': return <HelpCircle className="size-4 text-[#6B2EAA]" />;
+    case 'CONFIRMATION': return <Search className="size-4 text-[#6B2EAA]" />;
+    default: return <Phone className="size-4 text-[#6B2EAA]" />;
   }
 }
 
@@ -70,18 +73,18 @@ export default function HistoryList({ calls }: HistoryListProps) {
 
   if (calls.length === 0) {
     return (
-      <div className="flex flex-col items-center gap-3 py-20">
-        <div className="w-14 h-14 rounded-2xl bg-[#F1F5F9] flex items-center justify-center">
-          <Inbox className="size-6 text-[#CBD5E1]" />
+      <div className="flex min-h-56 flex-col items-center justify-center gap-2 px-6 text-center">
+        <div className="mb-1 flex size-11 items-center justify-center rounded-[10px] bg-[#F3EEF9]">
+          <Inbox className="size-5 text-[#6B2EAA]" />
         </div>
-        <p className="text-sm font-medium text-[#94A3B8]">아직 통화 기록이 없습니다</p>
-        <p className="text-xs text-[#CBD5E1]">채팅에서 전화를 요청해보세요</p>
+        <p className="text-sm font-semibold text-[#1E1E28]">아직 통화 기록이 없습니다</p>
+        <p className="text-xs text-[#9A939E]">아웃바운드에서 전화를 시작해보세요</p>
       </div>
     );
   }
 
   return (
-    <div className="space-y-2">
+    <div>
       {calls.map((call) => {
         const badge = getStatusBadge(call.status);
         const icon = getRequestTypeIcon(call.requestType);
@@ -89,19 +92,19 @@ export default function HistoryList({ calls }: HistoryListProps) {
           <button
             key={call.id}
             onClick={() => router.push(getNavigationTarget(call))}
-            className="flex w-full items-center gap-3 rounded-2xl bg-white border border-[#E2E8F0] p-4 text-left hover:border-[#CBD5E1] hover:shadow-[0_2px_8px_rgba(0,0,0,0.04)] transition-all active:scale-[0.99]"
+            className="ops-list-row grid w-full grid-cols-[40px_minmax(0,1fr)_auto_auto] items-center gap-3 border-b border-[#E3E0E8] bg-transparent text-left transition-colors last:border-b-0 hover:bg-white/60 active:bg-white"
           >
             {/* 아이콘 */}
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#F1F5F9]">
+            <div className="flex size-10 shrink-0 items-center justify-center rounded-[9px] bg-[#F3EEF9]">
               {icon}
             </div>
 
             {/* 정보 */}
             <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-              <span className="truncate text-sm font-semibold text-[#0F172A]">{call.targetName}</span>
-              <div className="flex items-center gap-1.5 text-[11px] text-[#94A3B8]">
+              <span className="truncate text-sm font-bold text-[#211D24]">{call.targetName}</span>
+              <div className="flex items-center gap-1.5 text-[11px] text-[#706A73]">
                 <span>{getRequestTypeLabel(call.requestType)}</span>
-                <span className="text-[#CBD5E1]">·</span>
+                <span className="text-[#CFC9D1]">·</span>
                 <span>{formatCreatedAt(call.createdAt)}</span>
               </div>
             </div>
@@ -109,11 +112,11 @@ export default function HistoryList({ calls }: HistoryListProps) {
             {/* 상태 뱃지 */}
             <div className={`flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 ${badge.bg}`}>
               <span className={`inline-block h-1.5 w-1.5 rounded-full ${badge.dotColor}`} />
-              <span className={`text-[10px] font-medium ${badge.text}`}>{badge.label}</span>
+              <span className={`text-[10px] font-bold ${badge.text}`}>{badge.label}</span>
             </div>
 
             {/* 화살표 */}
-            <ChevronRight className="size-4 shrink-0 text-[#CBD5E1]" />
+            <ChevronRight className="size-4 shrink-0 text-[#B8B1BA]" />
           </button>
         );
       })}

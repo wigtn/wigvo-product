@@ -54,7 +54,6 @@ export default function ChatContainer() {
     sendText,
     sendTypingState,
     callData: call,
-    refetchCallData,
   } = useRelayCallStore();
 
   // 통화 끝났는지 판별 (입력 활성화용)
@@ -110,8 +109,8 @@ export default function ChatContainer() {
   if (isInitializing) {
     return (
       <div className="flex flex-col items-center justify-center h-full gap-3">
-        <Loader2 className="size-8 text-[#0F172A] animate-spin" />
-        <p className="text-sm text-[#94A3B8]">{t("loadingConversation")}</p>
+        <Loader2 className="size-8 animate-spin text-[#6B2EAA]" />
+        <p className="text-sm text-[#706A73]">{t("loadingConversation")}</p>
       </div>
     );
   }
@@ -135,7 +134,7 @@ export default function ChatContainer() {
         )}
         {isLoading && (
           <div className="flex justify-center pb-4">
-            <Loader2 className="size-5 text-[#0F172A] animate-spin" />
+            <Loader2 className="size-5 animate-spin text-[#6B2EAA]" />
           </div>
         )}
       </div>
@@ -145,16 +144,16 @@ export default function ChatContainer() {
   return (
     <div className="flex flex-col h-full bg-transparent">
       {/* 채팅 헤더 - 새 대화 버튼 */}
-      <div className="shrink-0 flex items-center justify-between px-4 py-2.5 border-b border-[#E2E8F0]">
+      <div className="flex min-h-[58px] shrink-0 items-center justify-between border-b border-[#E4E1E6] px-4">
         <div className="flex items-center gap-2">
-          <Phone className="size-3.5 text-[#64748B]" />
-          <span className="text-xs font-medium text-[#64748B]">{t("header")}</span>
+          <span className="grid size-8 place-items-center rounded-lg bg-[#F3EEF9] text-[#6B2EAA]"><Phone className="size-3.5" /></span>
+          <span className="text-xs font-bold text-[#312C35]">{isCalling ? t("liveContent") : t("header")}</span>
         </div>
         <button
           type="button"
           onClick={handleNewConversation}
           disabled={isLoading || isCallActive}
-          className="flex items-center gap-1 text-xs text-[#94A3B8] hover:text-[#64748B] transition-colors disabled:opacity-40"
+          className="flex items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold text-[#8A838D] transition-colors hover:bg-[#F3EEF9] hover:text-[#6B2EAA] disabled:opacity-40"
         >
           <Plus className="size-3.5" />
           {tc("newChat")}
@@ -162,7 +161,7 @@ export default function ChatContainer() {
       </div>
 
       {/* 메시지 영역 */}
-      <div ref={scrollContainerRef} className="flex-1 overflow-y-auto styled-scrollbar px-5 pt-4 pb-2">
+      <div ref={scrollContainerRef} className="styled-scrollbar flex-1 overflow-y-auto bg-[#F8F7F9] px-4 pb-2 pt-5 sm:px-5">
         {/* 기존 채팅 메시지 */}
         {messages.map((msg) => (
           <ChatMessage key={msg.id} message={msg} />
@@ -171,11 +170,11 @@ export default function ChatContainer() {
         {/* 로딩 (비통화 중) */}
         {isLoading && !isCalling && (
           <div className="flex justify-start mb-3">
-            <div className="max-w-[80%] rounded-2xl rounded-bl-md px-4 py-2.5 bg-[#F8FAFC] border border-[#E2E8F0]">
-              <div className="text-[10px] text-[#64748B] font-medium mb-1.5 uppercase tracking-wider">
+            <div className="max-w-[80%] rounded-2xl rounded-bl-md border border-[#E4E1E6] bg-white px-4 py-2.5">
+              <div className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-[#6B2EAA]">
                 {tc("agent")}
               </div>
-              <div className="flex items-center gap-1 text-[#94A3B8] text-sm">
+              <div className="flex items-center gap-1 text-sm text-[#8A838D]">
                 <span className="animate-bounce" style={{ animationDelay: "0ms" }}>.</span>
                 <span className="animate-bounce" style={{ animationDelay: "150ms" }}>.</span>
                 <span className="animate-bounce" style={{ animationDelay: "300ms" }}>.</span>
@@ -210,8 +209,8 @@ export default function ChatContainer() {
             {/* 번역 중 타이핑 인디케이터 */}
             {translationState === 'processing' && (
               <div className="flex justify-start mb-3">
-                <div className="rounded-2xl rounded-bl-md px-4 py-2 bg-[#F1F5F9]">
-                  <p className="text-xs text-[#94A3B8] animate-pulse">
+                <div className="rounded-2xl rounded-bl-md border border-[#E4E1E6] bg-white px-4 py-2">
+                  <p className="animate-pulse text-xs text-[#8A838D]">
                     Translating...
                   </p>
                 </div>

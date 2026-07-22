@@ -1,30 +1,30 @@
 'use client';
 
-import { useState, useCallback } from 'react';
-import { useTranslations, useLocale } from 'next-intl';
+import { useCallback, useState } from 'react';
+import { useLocale, useTranslations } from 'next-intl';
 import {
   ArrowLeftRight,
-  Phone,
-  Mic,
-  MessageSquare,
   Bot,
-  ChevronLeft,
-  Send,
-  UtensilsCrossed,
-  Scissors,
-  Stethoscope,
   Building2,
+  Check,
+  Keyboard,
+  Languages,
+  Mic2,
+  PhoneOutgoing,
+  Scissors,
   Search,
+  Send,
+  Stethoscope,
+  UtensilsCrossed,
   Wrench,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import type { ScenarioType, ScenarioSubType } from '@/shared/types';
-import type { CommunicationMode, CallCategory } from '@/shared/call-types';
-import { SUPPORTED_LANGUAGES, getDefaultLanguagePairForLocale, resolveDirectMode } from '@/shared/call-types';
-import type { DirectCallOptions } from '@/shared/call-types';
 import LanguageDropdown from '@/components/common/LanguageDropdown';
+import type { ScenarioSubType, ScenarioType } from '@/shared/types';
+import type { CommunicationMode } from '@/shared/call-types';
+import { SUPPORTED_LANGUAGES, getDefaultLanguagePairForLocale } from '@/shared/call-types';
+import { cn } from '@/lib/utils';
 
-// ── Quick Action (AI Auto only) ────────────────────────────────
 interface QuickAction {
   icon: LucideIcon;
   scenarioType: ScenarioType;
@@ -42,7 +42,18 @@ const QUICK_ACTIONS: QuickAction[] = [
   { icon: Wrench, scenarioType: 'AS_REQUEST', subType: 'OTHER', labelKey: 'asRequest', descKey: 'asRequestDesc' },
 ];
 
-// ── Props ───────────────────────────────────────────────────────
+const MODE_OPTIONS: Array<{
+  mode: CommunicationMode;
+  icon: LucideIcon;
+  titleKey: 'voiceToVoice' | 'textToVoice' | 'fullAgent';
+  subtitleKey: 'voiceToVoiceSubtitle' | 'textToVoiceSubtitle' | 'fullAgentSubtitle';
+  descriptionKey: 'voiceToVoiceDesc' | 'textToVoiceDesc' | 'fullAgentDesc';
+}> = [
+  { mode: 'voice_to_voice', icon: Mic2, titleKey: 'voiceToVoice', subtitleKey: 'voiceToVoiceSubtitle', descriptionKey: 'voiceToVoiceDesc' },
+  { mode: 'text_to_voice', icon: Keyboard, titleKey: 'textToVoice', subtitleKey: 'textToVoiceSubtitle', descriptionKey: 'textToVoiceDesc' },
+  { mode: 'full_agent', icon: Bot, titleKey: 'fullAgent', subtitleKey: 'fullAgentSubtitle', descriptionKey: 'fullAgentDesc' },
+];
+
 interface ScenarioSelectorProps {
   onSelect: (
     scenarioType: ScenarioType,
@@ -54,356 +65,212 @@ interface ScenarioSelectorProps {
   disabled?: boolean;
 }
 
-type Step = 'category' | 'direct' | 'ai_auto';
-
 export function ScenarioSelector({ onSelect, disabled = false }: ScenarioSelectorProps) {
   const t = useTranslations('scenario');
-  const tCat = useTranslations('scenario.category');
-  const tDirect = useTranslations('scenario.direct');
-  const tAiAuto = useTranslations('scenario.aiAuto');
-  const tQuick = useTranslations('scenario.quick');
   const tLang = useTranslations('scenario.lang');
+  const tModes = useTranslations('scenario.modes');
+  const tQuick = useTranslations('scenario.quick');
   const locale = useLocale();
-
-  // Language pair (locale 기반 기본값: UI 언어 = source, 상대방 = target)
   const defaultPair = getDefaultLanguagePairForLocale(locale);
   const [sourceLang, setSourceLang] = useState(defaultPair.source.code);
   const [targetLang, setTargetLang] = useState(defaultPair.target.code);
-
-  // Step navigation
-  const [step, setStep] = useState<Step>('category');
-
-  // Direct call options
-  const [inputMethod, setInputMethod] = useState<'voice' | 'text'>('voice');
-
-  // AI Auto free text
+  const [selectedMode, setSelectedMode] = useState<CommunicationMode | null>(null);
   const [freeText, setFreeText] = useState('');
-  const handleSwapLanguages = () => {
+
+  const sourceLangObj = SUPPORTED_LANGUAGES.find((language) => language.code === sourceLang);
+  const targetLangObj = SUPPORTED_LANGUAGES.find((language) => language.code === targetLang);
+
+  const handleSwapLanguages = useCallback(() => {
     setSourceLang(targetLang);
     setTargetLang(sourceLang);
-  };
+  }, [sourceLang, targetLang]);
 
-  const sourceLangObj = SUPPORTED_LANGUAGES.find((l) => l.code === sourceLang);
-  const targetLangObj = SUPPORTED_LANGUAGES.find((l) => l.code === targetLang);
+  const handleDirectContinue = useCallback(() => {
+    if (disabled || !selectedMode || selectedMode === 'full_agent') return;
+    onSelect('INQUIRY', 'OTHER', selectedMode, sourceLang, targetLang);
+  }, [disabled, onSelect, selectedMode, sourceLang, targetLang]);
 
-  // ── Category selection ──────────────────────────────────────
-  const handleCategorySelect = useCallback((category: CallCategory) => {
+  const handleQuickAction = useCallback((action: QuickAction) => {
     if (disabled) return;
-    if (category === 'direct') {
-      setStep('direct');
-    } else {
-      setStep('ai_auto');
-    }
-  }, [disabled]);
+    onSelect(action.scenarioType, action.subType, 'full_agent', sourceLang, targetLang);
+  }, [disabled, onSelect, sourceLang, targetLang]);
 
-  const handleBack = useCallback(() => {
-    setStep('category');
-  }, []);
-
-  // ── Direct call: start ──────────────────────────────────────
-  const handleDirectStart = useCallback(() => {
-    if (disabled) return;
-    const options: DirectCallOptions = {
-      translation: true,
-      inputMethod,
-    };
-    const mode = resolveDirectMode(options);
-    onSelect('INQUIRY', 'OTHER', mode, sourceLang, targetLang);
-  }, [disabled, inputMethod, sourceLang, targetLang, onSelect]);
-
-  // ── AI Auto: quick action ───────────────────────────────────
-  const handleQuickAction = useCallback(
-    (action: QuickAction) => {
-      if (disabled) return;
-      onSelect(action.scenarioType, action.subType, 'full_agent', sourceLang, targetLang);
-    },
-    [sourceLang, targetLang, disabled, onSelect],
-  );
-
-  // ── AI Auto: free text ──────────────────────────────────────
   const handleFreeTextSubmit = useCallback(() => {
-    const text = freeText.trim();
-    if (!text || disabled) return;
+    if (!freeText.trim() || disabled) return;
     onSelect('INQUIRY', 'OTHER', 'full_agent', sourceLang, targetLang);
-  }, [freeText, sourceLang, targetLang, disabled, onSelect]);
+  }, [disabled, freeText, onSelect, sourceLang, targetLang]);
 
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault();
-        handleFreeTextSubmit();
-      }
-    },
-    [handleFreeTextSubmit],
-  );
-
-  // ── Language pair section ───────────────────────────────────
-  const renderLanguagePair = () => (
-    <div className="mb-8 max-w-2xl mx-auto w-full">
-      <div className="glass-surface rounded-3xl px-4 py-4 md:px-5 md:py-5">
-        <div className="grid grid-cols-[1fr_auto_1fr] items-end gap-3 md:gap-4">
-          <p className="text-[10px] font-semibold text-[#94A3B8] uppercase tracking-wider mb-1.5">
-            {tLang('myLang')}
-          </p>
-          <div />
-          <p className="text-[10px] font-semibold text-[#94A3B8] uppercase tracking-wider mb-1.5 text-left">
-            {tLang('theirLang')}
-          </p>
-
-          <div>
-            <LanguageDropdown value={sourceLang} onChange={setSourceLang} disabled={disabled} />
-          </div>
-          <button
-            type="button"
-            onClick={handleSwapLanguages}
-            disabled={disabled}
-            className="self-center justify-self-center shrink-0 w-10 h-10 rounded-full bg-white/75 border border-white/80 flex items-center justify-center text-[#64748B] hover:bg-white hover:text-[#0F172A] transition-colors disabled:opacity-50"
-            aria-label="Swap languages"
-          >
-            <ArrowLeftRight className="size-4" />
-          </button>
-          <div>
-            <LanguageDropdown value={targetLang} onChange={setTargetLang} disabled={disabled} />
-          </div>
-        </div>
-      </div>
-
-      {/* Translation flow preview */}
-      <div className="mt-3 px-1 space-y-1">
-        <p className="text-[10px] text-[#94A3B8] flex items-center gap-1">
-          <span>{sourceLangObj?.flag}</span>
-          <span>{tLang('flowSend', { source: sourceLangObj?.label ?? '', target: targetLangObj?.label ?? '' })}</span>
-        </p>
-        <p className="text-[10px] text-[#94A3B8] flex items-center gap-1">
-          <span>{targetLangObj?.flag}</span>
-          <span>{tLang('flowReceive', { source: sourceLangObj?.label ?? '' })}</span>
-        </p>
-      </div>
-    </div>
-  );
-
-  // ── Step-specific content helpers ───────────────────────────
-  const renderCategoryContent = () => (
-    <>
-      {/* Header */}
-      <div className="text-center mb-8 max-w-2xl mx-auto">
-        <h2 className="text-2xl font-bold text-[#0F172A] tracking-tight mb-1.5">
-          {t.rich('title', { accent: (chunks) => <span className="text-gradient">{chunks}</span> })}
-        </h2>
-        <p className="text-sm text-[#94A3B8]">{t('subtitle')}</p>
-      </div>
-
-      {/* Category cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-w-2xl mx-auto w-full">
-        {/* Direct Call */}
-        <button
-          type="button"
-          disabled={disabled}
-          onClick={() => handleCategorySelect('direct')}
-          className="glass-surface group flex items-center gap-4 p-5 rounded-3xl hover:border-white/90 hover:shadow-[0_14px_28px_rgba(15,23,42,0.12)] active:scale-[0.99] transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed text-left"
-        >
-          <div className="shrink-0 w-12 h-12 rounded-2xl bg-[#F1F5F9] border border-[#E2E8F0] flex items-center justify-center">
-            <Phone className="size-5 text-[#0F172A]" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-bold text-[#0F172A]">{tCat('directTitle')}</p>
-            <p className="text-[10px] text-[#94A3B8] font-medium uppercase tracking-wider">{tCat('directSubtitle')}</p>
-            <p className="text-xs text-[#64748B] mt-0.5 leading-snug">{tCat('directDesc')}</p>
-          </div>
-        </button>
-
-        {/* AI Auto Call */}
-        <button
-          type="button"
-          disabled={disabled}
-          onClick={() => handleCategorySelect('ai_auto')}
-          className="glass-surface group flex items-center gap-4 p-5 rounded-3xl hover:border-white/90 hover:shadow-[0_14px_28px_rgba(15,23,42,0.12)] active:scale-[0.99] transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed text-left"
-        >
-          <div className="shrink-0 w-12 h-12 rounded-2xl bg-[#F1F5F9] border border-[#E2E8F0] flex items-center justify-center">
-            <Bot className="size-5 text-[#0F172A]" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-bold text-[#0F172A]">{tCat('aiAutoTitle')}</p>
-            <p className="text-[10px] text-[#94A3B8] font-medium uppercase tracking-wider">{tCat('aiAutoSubtitle')}</p>
-            <p className="text-xs text-[#64748B] mt-0.5 leading-snug">{tCat('aiAutoDesc')}</p>
-          </div>
-        </button>
-      </div>
-    </>
-  );
-
-  const renderDirectContent = () => (
-    <>
-      {/* Header */}
-      <div className="text-center mb-6 max-w-2xl mx-auto">
-        <h2 className="text-2xl font-bold text-[#0F172A] tracking-tight mb-1.5">
-          {tDirect('title')}
-        </h2>
-        <p className="text-sm text-[#94A3B8]">{tDirect('subtitle')}</p>
-      </div>
-
-      <div className="max-w-2xl mx-auto w-full space-y-5">
-        {/* Input method */}
-        <div>
-          <p className="text-xs font-semibold text-[#64748B] mb-2 uppercase tracking-wider">
-            {tDirect('inputLabel')}
-          </p>
-          <div className="grid grid-cols-2 gap-2 items-stretch">
-            <button
-              type="button"
-              disabled={disabled}
-              onClick={() => setInputMethod('voice')}
-              className={`glass-surface box-border min-h-[158px] flex flex-col items-center justify-center gap-2 p-5 rounded-3xl transition-[background-color,border-color,box-shadow,color] ${
-                inputMethod === 'voice'
-                  ? 'glass-surface-selected'
-                  : 'hover:border-white/90 hover:shadow-[0_14px_28px_rgba(15,23,42,0.12)]'
-              } disabled:opacity-50`}
-            >
-              <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
-                inputMethod === 'voice' ? 'bg-[#0F172A] text-white' : 'bg-[#F1F5F9] text-[#64748B]'
-              }`}>
-                <Mic className="size-5" />
-              </div>
-              <span className="text-xs font-semibold text-[#0F172A]">{tDirect('inputVoice')}</span>
-              <span className="text-[9px] text-[#94A3B8] text-center leading-tight">{tDirect('inputVoiceDesc')}</span>
-            </button>
-            <button
-              type="button"
-              disabled={disabled}
-              onClick={() => setInputMethod('text')}
-              className={`glass-surface box-border min-h-[158px] flex flex-col items-center justify-center gap-2 p-5 rounded-3xl transition-[background-color,border-color,box-shadow,color] ${
-                inputMethod === 'text'
-                  ? 'glass-surface-selected'
-                  : 'hover:border-white/90 hover:shadow-[0_14px_28px_rgba(15,23,42,0.12)]'
-              } disabled:opacity-50`}
-            >
-              <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
-                inputMethod === 'text' ? 'bg-[#0F172A] text-white' : 'bg-[#F1F5F9] text-[#64748B]'
-              }`}>
-                <MessageSquare className="size-5" />
-              </div>
-              <span className="text-xs font-semibold text-[#0F172A]">{tDirect('inputText')}</span>
-              <span className="text-[9px] text-[#94A3B8] text-center leading-tight">{tDirect('inputTextDesc')}</span>
-            </button>
-          </div>
-        </div>
-
-        {/* Start call button */}
-        <div className="min-h-[52px] flex items-center md:justify-end">
-          <button
-            type="button"
-            onClick={handleDirectStart}
-            disabled={disabled}
-            className="w-full md:w-auto md:min-w-[220px] flex items-center justify-center gap-2 rounded-2xl bg-[#0F172A] text-white px-5 py-3 text-sm font-medium transition-colors hover:bg-[#1E293B] disabled:opacity-40"
-          >
-            <Phone className="size-4" />
-            {tDirect('startCall')}
-          </button>
-        </div>
-      </div>
-    </>
-  );
-
-  const renderAiAutoContent = () => (
-    <>
-      {/* Header */}
-      <div className="text-center mb-6 max-w-2xl mx-auto">
-        <h2 className="text-2xl font-bold text-[#0F172A] tracking-tight mb-1.5">
-          {tAiAuto.rich('title', { accent: (chunks) => <span className="text-gradient">{chunks}</span> })}
-        </h2>
-        <p className="text-sm text-[#94A3B8]">{tAiAuto('subtitle')}</p>
-      </div>
-
-      {/* Quick action grid */}
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-2.5 max-w-2xl mx-auto w-full mb-6">
-        {QUICK_ACTIONS.map((action) => {
-          const Icon = action.icon;
-          return (
-            <button
-              key={`${action.scenarioType}-${action.subType}`}
-              type="button"
-              disabled={disabled}
-              onClick={() => handleQuickAction(action)}
-              className="glass-surface group flex flex-col items-center gap-2 p-4 rounded-2xl hover:border-white/90 hover:shadow-[0_14px_28px_rgba(15,23,42,0.12)] active:scale-[0.99] transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <div className="w-10 h-10 rounded-xl bg-[#F1F5F9] flex items-center justify-center group-hover:bg-[#E2E8F0] transition-colors">
-                <Icon className="size-5 text-[#0F172A]" />
-              </div>
-              <span className="text-[11px] font-semibold text-[#0F172A] leading-tight text-center">
-                {tQuick(action.labelKey)}
-              </span>
-              <span className="text-[9px] text-[#94A3B8] leading-tight text-center hidden sm:block">
-                {tQuick(action.descKey)}
-              </span>
-            </button>
-          );
-        })}
-      </div>
-
-      {/* Divider + free text */}
-      <div className="max-w-2xl mx-auto w-full">
-        <div className="flex items-center gap-3 mb-3">
-          <div className="flex-1 h-px bg-[#E2E8F0]" />
-          <span className="text-[10px] text-[#CBD5E1] font-medium uppercase tracking-wider">
-            {t('orFreeInput')}
-          </span>
-          <div className="flex-1 h-px bg-[#E2E8F0]" />
-        </div>
-
-        <div className="flex items-center gap-2">
-          <input
-            type="text"
-            value={freeText}
-            onChange={(e) => setFreeText(e.target.value)}
-            onKeyDown={handleKeyDown}
-            disabled={disabled}
-            placeholder={t('freeInputPlaceholder')}
-            className="flex-1 rounded-2xl border border-[#E2E8F0] px-4 py-2.5 text-sm text-[#334155] placeholder:text-[#CBD5E1] focus:outline-none focus:ring-1 focus:ring-[#0F172A] disabled:opacity-50"
-          />
-          <button
-            type="button"
-            onClick={handleFreeTextSubmit}
-            disabled={!freeText.trim() || disabled}
-            className="flex h-10 w-10 items-center justify-center rounded-2xl bg-[#0F172A] text-white transition-colors hover:bg-[#1E293B] disabled:opacity-30"
-          >
-            <Send className="size-4" />
-          </button>
-        </div>
-      </div>
-    </>
-  );
-
-  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  // Single unified return — fixed slot layout prevents Y-jump
-  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   return (
-    <div className="flex flex-col h-full bg-transparent">
-      <div className="flex-1 overflow-y-auto styled-scrollbar">
-        <div className="px-4 md:px-8 pt-7 pb-8 flex flex-col items-center">
-          {/* Back row */}
-          <div className="w-full mb-3 min-h-6">
-            <button
-              type="button"
-              onClick={handleBack}
-              disabled={disabled || step === 'category'}
-              className={`flex items-center gap-1 text-xs transition-colors ${
-                step === 'category'
-                  ? 'opacity-0 pointer-events-none'
-                  : 'text-[#64748B] hover:text-[#334155]'
-              }`}
-            >
-              <ChevronLeft className="size-3.5" />
-              {step === 'direct' ? tCat('directTitle') : tCat('aiAutoTitle')}
-            </button>
+    <div className="styled-scrollbar h-full overflow-y-auto bg-transparent">
+      <div>
+        <div className="ops-panel-header">
+          <div className="flex items-center gap-2.5">
+            <span className="grid size-8 place-items-center rounded-lg bg-[#F1EFF2] text-[#4D4852]"><PhoneOutgoing className="size-4" /></span>
+            <h2 className="text-sm font-bold text-[#1E1E28]">{t('setupTitle')}</h2>
           </div>
+          <span className="text-[11px] font-medium tabular-nums text-[#918B98]">01 · 02</span>
+        </div>
 
-          {/* Language pair — same Y position on all steps */}
-          {renderLanguagePair()}
+        <div className="ops-panel-body grid">
+          <section className="ops-subsection" aria-labelledby="language-section-title">
+            <div className="mb-4 flex items-center gap-2.5">
+              <span className="text-[10px] font-bold tabular-nums text-[#918B98]">01</span>
+              <h3 id="language-section-title" className="text-sm font-bold text-[#1E1E28]">{t('languageSection')}</h3>
+            </div>
+            <div className="grid grid-cols-[minmax(0,1fr)_40px_minmax(0,1fr)] items-end gap-2.5 sm:grid-cols-[minmax(0,1fr)_44px_minmax(0,1fr)] sm:gap-4">
+              <div>
+                <p className="mb-2 text-[11px] font-semibold text-[#686375]">{tLang('myLang')}</p>
+                <LanguageDropdown value={sourceLang} onChange={setSourceLang} disabled={disabled} />
+              </div>
+              <button
+                type="button"
+                onClick={handleSwapLanguages}
+                disabled={disabled}
+                className="mb-0.5 grid size-10 place-items-center rounded-[9px] border border-[#CEC9D4] bg-white text-[#686375] transition-colors hover:border-[#1E1E28] hover:bg-[#F5F3F6] hover:text-[#1E1E28] focus-visible:!outline-[#1E1E28] disabled:opacity-50"
+                aria-label={t('swapLanguages')}
+              >
+                <ArrowLeftRight className="size-4" />
+              </button>
+              <div>
+                <p className="mb-2 text-[11px] font-semibold text-[#686375]">{tLang('theirLang')}</p>
+                <LanguageDropdown value={targetLang} onChange={setTargetLang} disabled={disabled} />
+              </div>
+            </div>
 
-          {/* Step-specific content — only below changes */}
-          {step === 'category' && renderCategoryContent()}
-          {step === 'direct' && renderDirectContent()}
-          {step === 'ai_auto' && renderAiAutoContent()}
+            <div className="mt-4 grid gap-2 border-t border-[#EEEAEF] pt-4 text-[11px] text-[#686375] sm:grid-cols-2">
+              <p className="flex items-center gap-2">
+                <Languages className="size-3.5 shrink-0 text-[#686375]" />
+                <span>{tLang('flowSend', { source: sourceLangObj?.label ?? '', target: targetLangObj?.label ?? '' })}</span>
+              </p>
+              <p className="flex items-center gap-2 sm:justify-end">
+                <Languages className="size-3.5 shrink-0 text-[#686375]" />
+                <span>{tLang('flowReceive', { source: sourceLangObj?.label ?? '' })}</span>
+              </p>
+            </div>
+          </section>
+
+          <section className="ops-subsection" aria-labelledby="mode-section-title">
+            <div className="mb-4 flex items-end justify-between gap-4">
+              <div className="flex items-center gap-2.5">
+                <span className="text-[10px] font-bold tabular-nums text-[#918B98]">02</span>
+                <h3 id="mode-section-title" className="text-sm font-bold text-[#1E1E28]">{t('modeSection')}</h3>
+              </div>
+              <span className="text-[11px] text-[#918B98]">{t('modeHint')}</span>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-3">
+              {MODE_OPTIONS.map((option) => {
+                const Icon = option.icon;
+                const selected = selectedMode === option.mode;
+                return (
+                  <button
+                    key={option.mode}
+                    type="button"
+                    disabled={disabled}
+                    aria-pressed={selected}
+                    onClick={() => setSelectedMode(option.mode)}
+                    className={cn(
+                      'group relative min-h-[152px] rounded-[10px] border p-4 text-left transition-[border-color,background-color,transform] duration-150 focus-visible:!outline-[#1E1E28] active:scale-[0.99] disabled:opacity-50 sm:min-h-[160px]',
+                      selected
+                        ? 'border-[#1E1E28] bg-white'
+                        : 'border-[#E3E0E8] bg-white hover:border-[#BEB8C4]',
+                    )}
+                  >
+                    <span className={cn(
+                      'grid size-10 place-items-center rounded-[9px] border transition-colors',
+                      selected
+                        ? 'border-[#1E1E28] bg-[#1E1E28] text-white'
+                        : 'border-[#E3E0E8] bg-white text-[#5F5A68]',
+                    )}>
+                      <Icon className="size-[18px]" />
+                    </span>
+                    <span className="mt-4 block text-[10px] font-bold uppercase tracking-[0.1em] text-[#918B98]">{tModes(option.subtitleKey)}</span>
+                    <strong className="mt-1 block text-sm text-[#1E1E28]">{tModes(option.titleKey)}</strong>
+                    <span className="mt-1.5 block text-xs leading-5 text-[#686375]">{tModes(option.descriptionKey)}</span>
+                    <span className={cn(
+                      'absolute right-4 top-4 grid size-5 place-items-center rounded-full border',
+                      selected ? 'border-[#1E1E28] bg-[#1E1E28] text-white' : 'border-[#BEB8C4] bg-white text-transparent',
+                    )}>
+                      <Check className="size-3" />
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {selectedMode && selectedMode !== 'full_agent' && (
+              <div className="mt-4 flex flex-col gap-3 border-t border-[#EEEAEF] pt-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0">
+                  <p className="text-[11px] font-semibold text-[#918B98]">{t('selectedMode')}</p>
+                  <p className="mt-1 truncate text-sm font-bold text-[#1E1E28]">
+                    {tModes(selectedMode === 'voice_to_voice' ? 'voiceToVoice' : 'textToVoice')}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleDirectContinue}
+                  disabled={disabled}
+                  className="inline-flex h-11 shrink-0 items-center justify-center rounded-[9px] bg-[#1E1E28] px-5 text-sm font-bold text-white transition-colors hover:bg-[#34313B] focus-visible:!outline-[#1E1E28] disabled:opacity-50"
+                >
+                  {t('continueWithMode')}
+                </button>
+              </div>
+            )}
+
+            {selectedMode === 'full_agent' && (
+              <section className="mt-4 border-t border-[#EEEAEF] pt-4" aria-labelledby="agent-purpose-title">
+                <div className="mb-4">
+                  <h3 id="agent-purpose-title" className="text-sm font-bold text-[#1E1E28]">{t('agentPurposeTitle')}</h3>
+                  <p className="mt-1 text-xs text-[#686375]">{t('agentPurposeDescription')}</p>
+                </div>
+                <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
+                  {QUICK_ACTIONS.map((action) => {
+                    const Icon = action.icon;
+                    return (
+                      <button
+                        key={`${action.scenarioType}-${action.subType}`}
+                        type="button"
+                        disabled={disabled}
+                        onClick={() => handleQuickAction(action)}
+                        className="group flex min-h-[92px] items-center gap-3 rounded-[9px] border border-transparent bg-[#F6F4F7] p-3 text-left transition-colors hover:border-[#CEC9D4] hover:bg-white focus-visible:!outline-[#1E1E28] disabled:opacity-50"
+                      >
+                        <span className="grid size-9 shrink-0 place-items-center rounded-[8px] border border-[#E3E0E8] bg-white text-[#5F5A68]"><Icon className="size-4" /></span>
+                        <span className="min-w-0">
+                          <strong className="block text-xs text-[#1E1E28]">{tQuick(action.labelKey)}</strong>
+                          <span className="mt-0.5 block text-[10px] text-[#918B98]">{tQuick(action.descKey)}</span>
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="mt-4 flex items-center gap-2 border-t border-[#EEEAEF] pt-4">
+                  <input
+                    type="text"
+                    value={freeText}
+                    onChange={(event) => setFreeText(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
+                        event.preventDefault();
+                        handleFreeTextSubmit();
+                      }
+                    }}
+                    disabled={disabled}
+                    placeholder={t('freeInputPlaceholder')}
+                    className="h-11 min-w-0 flex-1 rounded-[9px] border border-[#CEC9D4] bg-white px-3.5 text-sm text-[#1E1E28] placeholder:text-[#918B98] focus:border-[#1E1E28] focus:outline-none focus:ring-3 focus:ring-[#EEEAEF] disabled:opacity-50"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleFreeTextSubmit}
+                    disabled={!freeText.trim() || disabled}
+                    className="grid size-11 shrink-0 place-items-center rounded-[9px] bg-[#1E1E28] text-white transition-colors hover:bg-[#34313B] focus-visible:!outline-[#1E1E28] disabled:bg-[#CEC9D4]"
+                    aria-label={t('submitRequest')}
+                  >
+                    <Send className="size-4" />
+                  </button>
+                </div>
+              </section>
+            )}
+          </section>
         </div>
       </div>
     </div>

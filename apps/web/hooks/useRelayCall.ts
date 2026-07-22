@@ -41,6 +41,7 @@ interface UseRelayCallReturn {
   toggleMute: () => void;
   isMuted: boolean;
   isRecording: boolean;
+  isRecipientSpeaking: boolean;
   isPlaying: boolean;
   error: string | null;
 }
@@ -56,10 +57,12 @@ export function useRelayCall(
   const [callDuration, setCallDuration] = useState(0);
   const [callMode, setCallMode] = useState<CallMode>('agent');
   const [isMuted, setIsMuted] = useState(false);
+  const [isRecipientSpeaking, setIsRecipientSpeaking] = useState(false);
   const [wsUrl, setWsUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const durationTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const recipientSpeakingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const userSpeakingRef = useRef(false);
   const wsRef = useRef<{ disconnect: () => void } | null>(null);
 
@@ -79,6 +82,26 @@ export function useRelayCall(
     stage: number | undefined;
     speaker: string;
   } | null>(null);
+
+  const stopRecipientSpeaking = useCallback(() => {
+    if (recipientSpeakingTimerRef.current) {
+      clearTimeout(recipientSpeakingTimerRef.current);
+      recipientSpeakingTimerRef.current = null;
+    }
+    setIsRecipientSpeaking(false);
+  }, []);
+
+  const markRecipientSpeaking = useCallback(() => {
+    if (recipientSpeakingTimerRef.current) {
+      clearTimeout(recipientSpeakingTimerRef.current);
+    }
+    setIsRecipientSpeaking(true);
+    // Safety reset in case a speech_end event is lost during a reconnect.
+    recipientSpeakingTimerRef.current = setTimeout(() => {
+      recipientSpeakingTimerRef.current = null;
+      setIsRecipientSpeaking(false);
+    }, 10_000);
+  }, []);
 
   // Handle incoming WS messages
   const handleMessage = useCallback(
@@ -193,6 +216,7 @@ export function useRelayCall(
             setCallStatus('connected');
           } else if (status === 'ended' || status === 'completed' || status === 'failed') {
             setCallStatus('ended');
+            stopRecipientSpeaking();
             // Server confirmed call ended — clean up resources
             player.stop();
             if (durationTimerRef.current) {
@@ -225,6 +249,7 @@ export function useRelayCall(
 
         case WsMessageType.INTERRUPT_ALERT: {
           pushEventLog({ tag: 'Interrupt', message: 'Recipient speaking', color: 'text-red-400' });
+          markRecipientSpeaking();
           // Clear playback queue when recipient is speaking
           player.clearQueue();
           break;
@@ -249,6 +274,13 @@ export function useRelayCall(
         case WsMessageType.PIPELINE_EVENT: {
           const stage = msg.data.stage as string;
           const event = msg.data.event as string;
+          if (stage === 'silero_vad') {
+            if (event === 'speech_start') {
+              markRecipientSpeaking();
+            } else if (event === 'speech_end') {
+              stopRecipientSpeaking();
+            }
+          }
           const { tag, color } = PIPELINE_STAGE_TAG_MAP[stage] ?? { tag: stage, color: 'text-gray-400' };
           const rms = msg.data.rms != null ? ` (RMS: ${msg.data.rms})` : '';
           const peakRms = msg.data.peak_rms != null ? ` (peak: ${msg.data.peak_rms})` : '';
@@ -268,7 +300,7 @@ export function useRelayCall(
           break;
       }
     },
-    [player, modeConfig.audioOutput],
+    [player, modeConfig.audioOutput, markRecipientSpeaking, stopRecipientSpeaking],
   );
 
   // WebSocket connection
@@ -338,11 +370,12 @@ export function useRelayCall(
       setError(null);
       setTranslationState('idle');
       setIsMuted(false);
+      stopRecipientSpeaking();
       captionCounterRef.current = 0;
       streamingRef.current = null;
       setWsUrl(relayWsUrl);
     },
-    [],
+    [stopRecipientSpeaking],
   );
 
   const endCall = useCallback(() => {
@@ -351,6 +384,7 @@ export function useRelayCall(
     const sent = ws.sendEndCall();
     player.stop();
     setCallStatus('ended');
+    stopRecipientSpeaking();
 
     if (durationTimerRef.current) {
       clearInterval(durationTimerRef.current);
@@ -368,7 +402,7 @@ export function useRelayCall(
       ws.disconnect();
       setWsUrl(null);
     }
-  }, [ws, player]);
+  }, [ws, player, stopRecipientSpeaking]);
 
   const sendText = useCallback(
     (text: string) => {
@@ -394,6 +428,9 @@ export function useRelayCall(
       if (durationTimerRef.current) {
         clearInterval(durationTimerRef.current);
       }
+      if (recipientSpeakingTimerRef.current) {
+        clearTimeout(recipientSpeakingTimerRef.current);
+      }
     };
   }, []);
 
@@ -410,6 +447,7 @@ export function useRelayCall(
     toggleMute,
     isMuted,
     isRecording: vadEnabled && isSpeaking,
+    isRecipientSpeaking,
     isPlaying: player.isPlaying,
     error,
   };

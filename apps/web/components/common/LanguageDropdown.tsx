@@ -54,45 +54,54 @@ export default function LanguageDropdown({ value, onChange, disabled = false }: 
         type="button"
         onClick={() => !disabled && setIsOpen((o) => !o)}
         disabled={disabled}
-        className="w-full h-11 flex items-center justify-between px-3 text-sm rounded-xl border border-white/80 bg-white/65 backdrop-blur-md text-[#0F172A] transition-colors hover:bg-white/80 focus:outline-none focus:border-[#CBD5E1] disabled:opacity-50 disabled:cursor-not-allowed"
+        aria-expanded={isOpen}
+        aria-haspopup="listbox"
+        className="flex h-11 w-full items-center justify-between rounded-[9px] border border-[#D8D4DC] bg-white px-3 text-sm font-semibold text-[#1E1E28] transition-colors hover:border-[#BEB8C4] hover:bg-[#FAF9FB] focus:border-[#1E1E28] focus:outline-none focus-visible:!outline-[#1E1E28] disabled:cursor-not-allowed disabled:opacity-50"
       >
         <span className="flex items-center gap-2">
-          <span>{selected?.flag}</span>
+          <span className="grid h-6 min-w-7 place-items-center rounded-[6px] bg-[#F1EFF2] px-1.5 text-[9px] font-black tracking-[0.06em] text-[#4D4852]">
+            {selected?.code.toUpperCase()}
+          </span>
           <span>{getLabel(selected?.code ?? '', selected?.label ?? '')}</span>
         </span>
-        <ChevronDown className={`size-4 text-[#94A3B8] transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
+        <ChevronDown className={`size-4 text-[#918B98] transition-transform duration-150 ${isOpen ? 'rotate-180' : ''}`} />
       </button>
 
-      <div
-        className={`absolute left-0 right-0 top-full mt-1 z-50 rounded-xl border border-white/80 bg-white/92 shadow-lg overflow-hidden transition-all duration-200 origin-top backdrop-blur-md ${
-          isOpen ? 'opacity-100 scale-y-100 translate-y-0' : 'opacity-0 scale-y-95 -translate-y-1 pointer-events-none'
-        }`}
-      >
-        {ACTIVE_LANGUAGES.map((lang) => {
-          const isSelected = lang.code === value;
-          return (
-            <button
-              key={lang.code}
-              type="button"
-              onClick={() => {
-                onChange(lang.code);
-                setIsOpen(false);
-              }}
-              className={`w-full flex items-center justify-between px-3 py-2.5 text-sm transition-colors ${
-                isSelected
-                  ? 'bg-[#F1F5F9] font-medium text-[#0F172A]'
-                  : 'text-[#64748B] hover:bg-[#F8FAFC]'
-              }`}
-            >
-              <span className="flex items-center gap-2">
-                <span>{lang.flag}</span>
-                <span>{getLabel(lang.code, lang.label)}</span>
-              </span>
-              {isSelected && <Check className="size-4 text-[#0F172A]" />}
-            </button>
-          );
-        })}
-      </div>
+      {isOpen && (
+        <div
+          role="listbox"
+          className="absolute left-0 right-0 top-full z-50 mt-1.5 origin-top overflow-hidden rounded-[10px] border border-[#E0DCE4] bg-white p-1 shadow-[0_12px_30px_rgba(21,21,30,0.14)]"
+        >
+          {ACTIVE_LANGUAGES.map((lang) => {
+            const isSelected = lang.code === value;
+            return (
+              <button
+                key={lang.code}
+                type="button"
+                role="option"
+                aria-selected={isSelected}
+                onClick={() => {
+                  onChange(lang.code);
+                  setIsOpen(false);
+                }}
+                className={`flex h-9 w-full items-center justify-between rounded-[7px] px-2.5 text-sm transition-colors focus-visible:!outline-[#1E1E28] ${
+                  isSelected
+                    ? 'bg-[#F1EFF2] font-semibold text-[#1E1E28]'
+                    : 'text-[#686375] hover:bg-[#F7F5F8] hover:text-[#1E1E28]'
+                }`}
+              >
+                <span className="flex items-center gap-2">
+                  <span className="grid h-6 min-w-7 place-items-center rounded-[6px] bg-white px-1.5 text-[9px] font-black tracking-[0.06em] text-[#4D4852]">
+                    {lang.code.toUpperCase()}
+                  </span>
+                  <span>{getLabel(lang.code, lang.label)}</span>
+                </span>
+                {isSelected && <Check className="size-4 text-[#1E1E28]" />}
+              </button>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

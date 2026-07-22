@@ -1,12 +1,13 @@
 'use client';
 
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
+import { Bot, MessageSquare, Mic, MicOff, PhoneOff, Send } from 'lucide-react';
 import type { CallMode, CommunicationMode } from '@/shared/call-types';
 import { useRelayCall } from '@/hooks/useRelayCall';
 import CallStatusBar from './CallStatusBar';
 import LiveCaptionPanel from './LiveCaptionPanel';
-import { PhoneOff, Send, Mic, MicOff, MessageSquare, Bot } from 'lucide-react';
+import VoiceSignal from './VoiceSignal';
 
 interface RealtimeCallViewProps {
   callId: string;
@@ -17,6 +18,7 @@ interface RealtimeCallViewProps {
   onCallEnd?: () => void;
   wsProtocols?: string[];
   refreshWsProtocols?: () => Promise<string[]>;
+  showRemoteSpeakingEffect?: boolean;
 }
 
 const modeBadgeIcon: Record<CommunicationMode, typeof Mic> = {
@@ -40,6 +42,7 @@ export default function RealtimeCallView({
   onCallEnd,
   wsProtocols,
   refreshWsProtocols,
+  showRemoteSpeakingEffect = false,
 }: RealtimeCallViewProps) {
   const t = useTranslations('call');
   const relay = useRelayCall(communicationMode, wsProtocols, refreshWsProtocols);
@@ -50,13 +53,8 @@ export default function RealtimeCallView({
 
   const BadgeIcon = modeBadgeIcon[communicationMode];
   const badgeLabel = t(`modeBadge.${COMM_MODE_KEYS[communicationMode]}`);
-
-  const quickReplies = [
-    { label: t('quickReplyYes'), value: t('quickReplyYesValue') },
-    { label: t('quickReplyNo'), value: t('quickReplyNoValue') },
-    { label: t('quickReplyWait'), value: t('quickReplyWaitValue') },
-    { label: t('quickReplyRepeat'), value: t('quickReplyRepeatValue') },
-  ];
+  const showRecipientSpeaking = showRemoteSpeakingEffect && relay.isRecipientSpeaking;
+  const isActive = relay.callStatus !== 'ended';
 
   useEffect(() => {
     endedRef.current = false;
@@ -71,230 +69,48 @@ export default function RealtimeCallView({
   }, [relay, onCallEnd]);
 
   const handleSendText = useCallback((text?: string) => {
-    const msg = text ?? textInput.trim();
-    if (!msg) return;
+    const message = text ?? textInput.trim();
+    if (!message) return;
     const now = Date.now();
     const last = lastTextActionRef.current;
-    if (last?.value === msg && now - last.at < 500) return;
-    lastTextActionRef.current = { value: msg, at: now };
-    relay.sendText(msg);
+    if (last?.value === message && now - last.at < 500) return;
+    lastTextActionRef.current = { value: message, at: now };
+    relay.sendText(message);
     setTextInput('');
   }, [textInput, relay]);
 
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault();
-        handleSendText();
-      }
-    },
-    [handleSendText],
-  );
-
-  const isActive = relay.callStatus !== 'ended';
-
-  // --- Voice to Voice layout ---
-  const renderVoiceToVoice = () => (
-    <>
-      {/* Main area: speaking visualizer */}
-      <div className="flex-1 flex flex-col min-h-0">
-        <div className="flex-1 flex items-center justify-center">
-          <div className="flex flex-col items-center gap-3">
-            {relay.isMuted ? (
-              <>
-                <div className="w-20 h-20 rounded-full bg-[#CBD5E1] flex items-center justify-center">
-                  <MicOff className="size-8 text-white" />
-                </div>
-                <span className="text-sm text-[#94A3B8]">{t('muted')}</span>
-              </>
-            ) : relay.isRecording ? (
-              <>
-                <div className="w-20 h-20 rounded-full bg-blue-500 animate-pulse flex items-center justify-center">
-                  <Mic className="size-8 text-white" />
-                </div>
-                <span className="text-sm text-blue-600 font-medium">{t('speaking')}</span>
-              </>
-            ) : (
-              <>
-                <div className="w-10 h-10 rounded-full bg-blue-500 flex items-center justify-center">
-                  <Mic className="size-5 text-white" />
-                </div>
-                <span className="text-sm text-[#64748B]">{t('listening')}</span>
-              </>
-            )}
-          </div>
-        </div>
-
-        {/* Bottom 30%: compact captions */}
-        <div className="h-[30%] min-h-0 border-t border-[#E2E8F0]">
-          <LiveCaptionPanel
-            captions={relay.captions}
-            translationState={relay.translationState}
-            compact
-          />
-        </div>
-      </div>
-
-      {/* Audio controls: mute + end call */}
-      {isActive && (
-        <div className="flex items-center gap-3 px-4 py-3 border-t border-[#E2E8F0]">
-          <button
-            onClick={relay.toggleMute}
-            className={`flex items-center gap-1.5 rounded-xl px-4 py-2 text-xs font-medium transition-all ${
-              relay.isMuted
-                ? 'bg-red-50 text-red-600 border border-red-200 hover:bg-red-100'
-                : 'bg-[#F1F5F9] text-[#334155] border border-[#E2E8F0] hover:bg-[#E2E8F0]'
-            }`}
-          >
-            {relay.isMuted ? (
-              <>
-                <MicOff className="size-3.5" />
-                {t('unmute')}
-              </>
-            ) : (
-              <>
-                <Mic className="size-3.5" />
-                {t('mute')}
-              </>
-            )}
-          </button>
-          <button
-            onClick={handleEndCall}
-            className="flex-1 flex items-center justify-center gap-2 rounded-xl bg-red-500 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-red-600"
-          >
-            <PhoneOff className="size-4" />
-            {t('endCall')}
-          </button>
-        </div>
-      )}
-    </>
-  );
-
-  // --- Text to Voice layout ---
-  const renderTextToVoice = () => (
-    <>
-      {/* Caption area: AI responses (top 60%) */}
-      <div className="flex-1 min-h-0">
-        <LiveCaptionPanel
-          captions={relay.captions}
-          translationState={relay.translationState}
-        />
-      </div>
-
-      {isActive && (
-        <>
-          {/* Quick reply chips */}
-          <div className="flex items-center gap-2 px-4 py-2 border-t border-[#E2E8F0] overflow-x-auto">
-            {quickReplies.map((reply) => (
-              <button
-                key={reply.label}
-                onClick={() => handleSendText(reply.value)}
-                className="shrink-0 rounded-full border border-[#E2E8F0] bg-[#F8FAFC] px-3 py-1.5 text-xs font-medium text-[#334155] transition-colors hover:bg-[#E2E8F0]"
-              >
-                {reply.label}
-              </button>
-            ))}
-          </div>
-
-          {/* Text input */}
-          <div className="flex items-center gap-2 px-4 py-3 border-t border-[#E2E8F0]">
-            <input
-              type="text"
-              value={textInput}
-              onChange={(e) => setTextInput(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder={t('sendMessage')}
-              className="flex-1 rounded-xl border border-[#E2E8F0] px-3 py-2 text-base md:text-sm text-[#334155] placeholder:text-[#CBD5E1] focus:outline-none focus:ring-1 focus:ring-[#0F172A]"
-            />
-            <button
-              onClick={() => handleSendText()}
-              disabled={!textInput.trim()}
-              className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#0F172A] text-white transition-colors hover:bg-[#1E293B] disabled:opacity-40"
-            >
-              <Send className="size-4" />
-            </button>
-          </div>
-
-          {/* End call */}
-          <div className="px-4 py-3 border-t border-[#E2E8F0]">
-            <button
-              onClick={handleEndCall}
-              className="w-full flex items-center justify-center gap-2 rounded-xl bg-red-500 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-red-600"
-            >
-              <PhoneOff className="size-4" />
-              {t('endCall')}
-            </button>
-          </div>
-        </>
-      )}
-    </>
-  );
-
-  // --- Full Agent layout ---
-  const renderFullAgent = () => (
-    <>
-      {/* AI status card + captions */}
-      <div className="flex-1 flex flex-col min-h-0">
-        {/* AI status card */}
-        <div className="px-4 py-4 border-b border-[#E2E8F0] bg-[#F8FAFC]">
-          <div className="flex items-center gap-3 rounded-xl bg-white border border-[#E2E8F0] px-4 py-3">
-            <div className="w-10 h-10 rounded-full bg-[#0F172A] flex items-center justify-center">
-              <Bot className="size-5 text-white" />
-            </div>
-            <div className="flex-1">
-              <p className="text-sm font-medium text-[#1E293B]">{t('aiHandling')}</p>
-              <p className="text-xs text-[#94A3B8]">{t('aiHandlingHint')}</p>
-            </div>
-            <div className="w-2 h-2 rounded-full bg-teal-500 animate-pulse" />
-          </div>
-        </div>
-
-        {/* Caption area: AI <-> recipient conversation */}
-        <div className="flex-1 min-h-0">
-          <LiveCaptionPanel
-            captions={relay.captions}
-            translationState={relay.translationState}
-          />
-        </div>
-      </div>
-
-      {isActive && (
-        <>
-          {/* Info message + end call */}
-          <div className="px-4 py-2 border-t border-[#E2E8F0] bg-[#F8FAFC]">
-            <p className="text-xs text-center text-[#94A3B8]">
-              {t('aiNoIntervention')}
-            </p>
-          </div>
-          <div className="px-4 py-3 border-t border-[#E2E8F0]">
-            <button
-              onClick={handleEndCall}
-              className="w-full flex items-center justify-center gap-2 rounded-xl bg-red-500 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-red-600"
-            >
-              <PhoneOff className="size-4" />
-              {t('endCall')}
-            </button>
-          </div>
-        </>
-      )}
-    </>
-  );
-
-  // Select the right renderer based on communication mode
-  const renderContent = () => {
-    switch (communicationMode) {
-      case 'voice_to_voice':
-        return renderVoiceToVoice();
-      case 'text_to_voice':
-        return renderTextToVoice();
-      case 'full_agent':
-        return renderFullAgent();
+  const handleKeyDown = useCallback((event: React.KeyboardEvent) => {
+    if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
+      event.preventDefault();
+      handleSendText();
     }
-  };
+  }, [handleSendText]);
+
+  const quickReplies = [
+    { label: t('quickReplyYes'), value: t('quickReplyYesValue') },
+    { label: t('quickReplyNo'), value: t('quickReplyNoValue') },
+    { label: t('quickReplyWait'), value: t('quickReplyWaitValue') },
+    { label: t('quickReplyRepeat'), value: t('quickReplyRepeatValue') },
+  ];
+
+  const signalState = (() => {
+    if (showRecipientSpeaking) {
+      return { active: true, tone: 'purple' as const, label: t('recipientSpeaking'), hint: t('recipientSpeakingHint') };
+    }
+    if (relay.isMuted) {
+      return { active: false, tone: 'neutral' as const, label: t('muted'), hint: t('mutedHint') };
+    }
+    if (relay.isRecording) {
+      return { active: true, tone: 'green' as const, label: t('speaking'), hint: t('operatorSpeakingHint') };
+    }
+    if (communicationMode === 'full_agent') {
+      return { active: relay.isPlaying, tone: 'purple' as const, label: t('aiHandling'), hint: t('aiHandlingHint') };
+    }
+    return { active: relay.isPlaying, tone: 'purple' as const, label: t('listening'), hint: t('listeningHint') };
+  })();
 
   return (
-    <div className="flex flex-col h-full bg-white rounded-xl border border-[#E2E8F0] overflow-hidden">
-      {/* Status Bar */}
+    <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-[#E4E1E6] bg-white">
       <CallStatusBar
         callStatus={relay.callStatus}
         callDuration={relay.callDuration}
@@ -302,21 +118,100 @@ export default function RealtimeCallView({
         callMode={callMode}
       />
 
-      {/* Mode Badge */}
-      <div className="flex items-center gap-1.5 px-4 py-1.5 border-b border-[#E2E8F0] bg-[#F8FAFC]">
-        <BadgeIcon className="size-3 text-[#64748B]" />
-        <span className="text-[10px] font-medium text-[#64748B]">{badgeLabel}</span>
+      <div className="flex min-h-[62px] items-center justify-between gap-3 border-b border-[#E4E1E6] bg-[#FBFAFC] px-4 sm:px-5">
+        <div className="flex min-w-0 items-center gap-2.5">
+          <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-[#F3EEF9] text-[#6B2EAA]">
+            <BadgeIcon className="size-4" />
+          </span>
+          <div className="min-w-0">
+            <p className="truncate text-xs font-bold text-[#211D24]">{badgeLabel}</p>
+            <p className="mt-0.5 truncate text-[11px] text-[#706A73]">{signalState.hint}</p>
+          </div>
+        </div>
+        <div className="flex shrink-0 items-center gap-3" role="status" aria-live="polite">
+          <div className="hidden text-right sm:block">
+            <p className="text-xs font-bold text-[#51327E]">{signalState.label}</p>
+          </div>
+          <VoiceSignal active={signalState.active} tone={signalState.tone} compact />
+        </div>
       </div>
 
-      {/* Error display */}
       {relay.error && (
-        <div className="px-4 py-2 bg-red-50 border-t border-red-100">
-          <p className="text-xs text-red-600">{relay.error}</p>
+        <div className="border-b border-[#EECACA] bg-[#FAECEB] px-4 py-2 text-xs text-[#A83C3C]">{relay.error}</div>
+      )}
+
+      <div className="min-h-0 flex-1">
+        <LiveCaptionPanel captions={relay.captions} translationState={relay.translationState} expanded />
+      </div>
+
+      {isActive && communicationMode === 'text_to_voice' && (
+        <div className="shrink-0 border-t border-[#E4E1E6] bg-white">
+          <div className="flex gap-2 overflow-x-auto px-4 py-2.5">
+            {quickReplies.map((reply) => (
+              <button
+                key={reply.label}
+                type="button"
+                onClick={() => handleSendText(reply.value)}
+                className="shrink-0 rounded-full border border-[#E4E1E6] bg-[#F8F7F9] px-3 py-1.5 text-xs font-semibold text-[#5E5861] transition-colors hover:border-[#D8C9EA] hover:bg-[#F3EEF9] hover:text-[#6B2EAA]"
+              >
+                {reply.label}
+              </button>
+            ))}
+          </div>
+          <div className="flex items-center gap-2 border-t border-[#EEEAEF] px-4 py-3">
+            <input
+              type="text"
+              value={textInput}
+              onChange={(event) => setTextInput(event.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder={t('sendMessage')}
+              className="h-11 min-w-0 flex-1 rounded-[9px] border border-[#D1CCD4] bg-white px-3 text-base text-[#211D24] outline-none placeholder:text-[#9A939E] focus:border-[#9B51E0] focus:ring-3 focus:ring-[#F3EEF9] md:text-sm"
+            />
+            <button
+              type="button"
+              onClick={() => handleSendText()}
+              disabled={!textInput.trim()}
+              className="grid size-11 shrink-0 place-items-center rounded-[9px] bg-[#6B2EAA] text-white transition-colors hover:bg-[#51327E] disabled:bg-[#D8D3DA]"
+              aria-label={t('sendMessage')}
+            >
+              <Send className="size-4" />
+            </button>
+          </div>
         </div>
       )}
 
-      {/* Mode-specific content */}
-      {renderContent()}
+      {isActive && communicationMode === 'full_agent' && (
+        <div className="shrink-0 border-t border-[#E4E1E6] bg-[#FBFAFC] px-4 py-2 text-center text-xs text-[#706A73]">
+          {t('aiNoIntervention')}
+        </div>
+      )}
+
+      {isActive && (
+        <div className="flex shrink-0 items-center gap-2 border-t border-[#E4E1E6] bg-white px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom,0px))]">
+          {communicationMode === 'voice_to_voice' && (
+            <button
+              type="button"
+              onClick={relay.toggleMute}
+              className={`inline-flex h-11 items-center gap-2 rounded-[9px] border px-3 text-xs font-bold transition-colors sm:px-4 ${
+                relay.isMuted
+                  ? 'border-[#EECACA] bg-[#FAECEB] text-[#A83C3C] hover:bg-[#F6DEDC]'
+                  : 'border-[#D1CCD4] bg-white text-[#5E5861] hover:border-[#D8C9EA] hover:bg-[#F3EEF9] hover:text-[#6B2EAA]'
+              }`}
+            >
+              {relay.isMuted ? <MicOff className="size-4" /> : <Mic className="size-4" />}
+              {relay.isMuted ? t('unmute') : t('mute')}
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={handleEndCall}
+            className="ml-auto inline-flex h-11 min-w-32 items-center justify-center gap-2 rounded-[9px] border border-[#A83C3C] bg-[#A83C3C] px-4 text-sm font-bold text-white transition-colors hover:border-[#8F3030] hover:bg-[#8F3030]"
+          >
+            <PhoneOff className="size-4" />
+            {t('endCall')}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

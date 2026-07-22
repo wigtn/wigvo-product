@@ -41,20 +41,20 @@ export default function CollectionSummary({
   const modeLabel = communicationMode ? tMode(MODE_LABEL_KEYS[communicationMode]) : null;
 
   return (
-    <div className="mx-4 mb-2 rounded-xl surface-card shadow-sm p-4 space-y-3">
+    <div className="surface-card mx-4 mb-2 space-y-3 rounded-xl p-4 shadow-sm">
       {/* 헤더 */}
       <div className="flex items-center justify-between mb-1">
         <div className="flex items-center gap-2">
-          <div className="w-1.5 h-1.5 rounded-full bg-teal-500 animate-pulse" />
-          <span className="text-[10px] text-teal-600 font-medium uppercase tracking-wider">
+          <div className="size-1.5 animate-pulse rounded-full bg-[#247353]" />
+          <span className="text-[10px] font-bold uppercase tracking-wider text-[#247353]">
             {t('collectionComplete')}
           </span>
         </div>
         {/* 통화 모드 배지 */}
         {modeIcon && modeLabel && (
-          <div className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#F1F5F9] border border-[#E2E8F0]">
+          <div className="flex items-center gap-1 rounded-full border border-[#E4E1E6] bg-[#F0EEF1] px-2 py-0.5">
             {modeIcon}
-            <span className="text-[10px] text-[#64748B] font-medium">{modeLabel}</span>
+            <span className="text-[10px] font-semibold text-[#706A73]">{modeLabel}</span>
           </div>
         )}
       </div>
@@ -109,7 +109,7 @@ export default function CollectionSummary({
         <button
           onClick={onEdit}
           disabled={isLoading}
-          className="flex-1 h-10 rounded-xl flex items-center justify-center gap-1.5 text-sm font-medium bg-[#F8FAFC] border border-[#E2E8F0] text-[#64748B] hover:bg-[#F1F5F9] hover:text-[#334155] transition-all disabled:opacity-40"
+          className="flex h-10 flex-1 items-center justify-center gap-1.5 rounded-[9px] border border-[#D1CCD4] bg-white text-sm font-bold text-[#5E5861] transition-all hover:border-[#D8C9EA] hover:bg-[#F3EEF9] hover:text-[#6B2EAA] disabled:opacity-40"
         >
           <Pencil className="size-3.5" />
           {t('edit')}
@@ -117,7 +117,7 @@ export default function CollectionSummary({
         <button
           onClick={onConfirm}
           disabled={isLoading}
-          className="flex-1 h-10 rounded-xl flex items-center justify-center gap-1.5 text-sm font-medium bg-[#0F172A] text-white hover:bg-[#1E293B] transition-all disabled:opacity-40 shadow-sm"
+          className="flex h-10 flex-1 items-center justify-center gap-1.5 rounded-[9px] bg-[#6B2EAA] text-sm font-bold text-white shadow-sm transition-all hover:bg-[#51327E] disabled:opacity-40"
         >
           <Phone className="size-3.5" />
           {isLoading ? t('processing') : t('makeCall')}

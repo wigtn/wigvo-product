@@ -52,27 +52,27 @@ export default function ResultCard({ call }: ResultCardProps) {
   const router = useRouter();
   const t = useTranslations('result');
   const tc = useTranslations('common');
-  const { resetCalling, resetDashboard, setActiveMenu, callingCallId } = useDashboard();
+  const { resetCalling, resetDashboard, callingCallId } = useDashboard();
   const { handleNewConversation } = useChat();
   const isInline = !!callingCallId;
 
   return (
-    <div className="flex flex-col items-center gap-6 py-6">
+    <div className="flex flex-col items-center gap-4 py-2 sm:gap-5 sm:py-4">
       {/* 통화 종료 헤더 */}
-      <div className="flex w-full flex-col items-center gap-4 rounded-2xl px-6 py-8 border bg-[#F8FAFC] border-[#E2E8F0]">
-        <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[#F1F5F9]">
-          <PhoneOff className="size-7 text-[#64748B]" />
+      <div className="flex w-full flex-col items-center gap-3 rounded-[12px] border border-[#E4E1E6] bg-white px-6 py-7 shadow-[0_4px_18px_rgba(33,29,36,0.04)]">
+        <div className="flex size-12 items-center justify-center rounded-[12px] bg-[#F5F4F6]">
+          <PhoneOff className="size-6 text-[#706A73]" />
         </div>
-        <h1 className="text-xl font-bold text-[#0F172A] tracking-tight">
+        <h2 className="text-lg font-bold tracking-[-0.025em] text-[#211D24]">
           {t('callEnded')}
-        </h1>
+        </h2>
       </div>
 
       {/* 통화 정보 카드 */}
       {(call.targetName || call.parsedDate || call.parsedTime || call.parsedService) && (
-        <div className="w-full rounded-2xl bg-white border border-[#E2E8F0] shadow-[0_1px_3px_rgba(0,0,0,0.04)] overflow-hidden">
-          <div className="px-5 py-3.5 border-b border-[#E2E8F0]">
-            <h3 className="text-xs font-semibold text-[#0F172A] uppercase tracking-wider">{t('callInfo')}</h3>
+        <div className="w-full overflow-hidden rounded-[12px] border border-[#E4E1E6] bg-white shadow-[0_4px_18px_rgba(33,29,36,0.04)]">
+          <div className="border-b border-[#E4E1E6] px-5 py-3.5">
+            <h3 className="text-xs font-bold tracking-[-0.01em] text-[#312C35]">{t('callInfo')}</h3>
           </div>
           <div className="px-5 py-4 space-y-4">
             {call.targetName && (
@@ -93,13 +93,13 @@ export default function ResultCard({ call }: ResultCardProps) {
 
       {/* AI 요약 */}
       {call.summary && (
-        <div className="w-full rounded-2xl bg-white border border-[#E2E8F0] shadow-[0_1px_3px_rgba(0,0,0,0.04)] overflow-hidden">
-          <div className="px-5 py-3.5 border-b border-[#E2E8F0] flex items-center gap-2">
-            <FileText className="size-3.5 text-[#94A3B8]" />
-            <h3 className="text-xs font-semibold text-[#0F172A] uppercase tracking-wider">{t('aiSummary')}</h3>
+        <div className="w-full overflow-hidden rounded-[12px] border border-[#E4E1E6] bg-white shadow-[0_4px_18px_rgba(33,29,36,0.04)]">
+          <div className="flex items-center gap-2 border-b border-[#E4E1E6] px-5 py-3.5">
+            <FileText className="size-3.5 text-[#9B51E0]" />
+            <h3 className="text-xs font-bold tracking-[-0.01em] text-[#312C35]">{t('aiSummary')}</h3>
           </div>
           <div className="px-5 py-4">
-            <p className="whitespace-pre-wrap text-sm leading-relaxed text-[#334155]">
+            <p className="whitespace-pre-wrap text-sm leading-relaxed text-[#4E4851]">
               {call.summary}
             </p>
           </div>
@@ -111,10 +111,9 @@ export default function ResultCard({ call }: ResultCardProps) {
         <button
           onClick={() => {
             resetCalling();
-            setActiveMenu('conversations');
-            router.push('/');
+            router.push('/history');
           }}
-          className="w-full h-11 rounded-xl flex items-center justify-center gap-2 text-sm font-medium bg-white border border-[#E2E8F0] text-[#334155] hover:bg-[#F8FAFC] transition-all"
+          className="flex h-11 w-full items-center justify-center gap-2 rounded-[10px] border border-[#DCD8DF] bg-white text-sm font-semibold text-[#312C35] transition-colors hover:border-[#CDB5DF] hover:bg-[#F8F4FB]"
         >
           <List className="size-4" />
           {t('viewHistory')}
@@ -123,8 +122,9 @@ export default function ResultCard({ call }: ResultCardProps) {
           onClick={async () => {
             resetDashboard();
             await handleNewConversation();
+            router.push('/outbound');
           }}
-          className="w-full h-11 rounded-xl flex items-center justify-center gap-2 text-sm font-medium text-[#94A3B8] hover:text-[#64748B] hover:bg-[#F8FAFC] transition-all"
+          className="flex h-11 w-full items-center justify-center gap-2 rounded-[10px] bg-[#1E1E28] text-sm font-semibold text-white transition-colors hover:bg-[#15151E]"
         >
           <Home className="size-4" />
           {isInline ? tc('newChat') : tc('home')}
@@ -138,12 +138,12 @@ export default function ResultCard({ call }: ResultCardProps) {
 function InfoRow({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
   return (
     <div className="flex items-center gap-3">
-      <div className="w-8 h-8 rounded-lg bg-[#F1F5F9] flex items-center justify-center shrink-0 text-[#64748B]">
+      <div className="flex size-8 shrink-0 items-center justify-center rounded-[9px] bg-[#F5F0F8] text-[#7B3BB6]">
         {icon}
       </div>
       <div>
-        <p className="text-[10px] text-[#94A3B8] uppercase tracking-wider">{label}</p>
-        <p className="text-sm font-medium text-[#0F172A]">{value}</p>
+        <p className="text-[10px] font-semibold tracking-[0.04em] text-[#8D8691]">{label}</p>
+        <p className="text-sm font-semibold text-[#312C35]">{value}</p>
       </div>
     </div>
   );

@@ -34,16 +34,15 @@ export enum WsMessageType {
 export interface SupportedLanguage {
   code: string;
   label: string;
-  flag: string;
   active: boolean;
 }
 
 export const SUPPORTED_LANGUAGES: readonly SupportedLanguage[] = [
-  { code: 'ko', label: '한국어', flag: '🇰🇷', active: true },
-  { code: 'en', label: 'English', flag: '🇺🇸', active: true },
-  { code: 'ja', label: '日本語', flag: '🇯🇵', active: false },
-  { code: 'zh', label: '中文', flag: '🇨🇳', active: false },
-  { code: 'vi', label: 'Tiếng Việt', flag: '🇻🇳', active: false },
+  { code: 'ko', label: '한국어', active: true },
+  { code: 'en', label: 'English', active: true },
+  { code: 'ja', label: '日本語', active: false },
+  { code: 'zh', label: '中文', active: false },
+  { code: 'vi', label: 'Tiếng Việt', active: false },
 ] as const;
 
 export const ACTIVE_LANGUAGES = SUPPORTED_LANGUAGES.filter((l) => l.active);

@@ -1,29 +1,16 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
-import dynamic from 'next/dynamic';
+import { useCallback, useEffect, useRef } from 'react';
 import { useTranslations } from 'next-intl';
+import { Bot, Loader2, MessageSquare, Mic, MicOff, PhoneOff } from 'lucide-react';
 import { useRelayCallStore } from '@/hooks/useRelayCallStore';
 import { useDashboard } from '@/hooks/useDashboard';
 import CallingStatus from './CallingStatus';
 import CallStatusBar from './CallStatusBar';
 import CallSummaryPanel from './CallSummaryPanel';
-import MetricsPanel from './MetricsPanel';
-import EventLogPanel from './EventLogPanel';
-import {
-  PhoneOff,
-  Mic,
-  MicOff,
-  MessageSquare,
-  Bot,
-  Loader2,
-  BarChart3,
-  ScrollText,
-} from 'lucide-react';
+import VoiceSignal from './VoiceSignal';
 import type { CommunicationMode } from '@/shared/call-types';
 import { isDemoMode } from '@/lib/demo';
-
-const Orb = dynamic(() => import('@/components/ui/Orb'), { ssr: false });
 
 const modeBadgeIcon: Record<CommunicationMode, typeof Mic> = {
   voice_to_voice: Mic,
@@ -37,18 +24,10 @@ const COMM_MODE_KEYS: Record<CommunicationMode, string> = {
   full_agent: 'fullAgent',
 };
 
-function getOrbHue(isRecording: boolean, isPlaying: boolean, isMuted: boolean): number {
-  if (isMuted) return 0; // gray
-  if (isRecording) return 220; // blue
-  if (isPlaying) return 160; // teal
-  return 120; // green (idle)
-}
-
 export default function CallEffectPanel() {
   const t = useTranslations('call');
   const tc = useTranslations('common');
-  const { callingCallId, callingCommunicationMode, resetDashboard } = useDashboard();
-
+  const { callingCommunicationMode, resetDashboard } = useDashboard();
   const {
     callData: call,
     callDataLoading: loading,
@@ -59,22 +38,16 @@ export default function CallEffectPanel() {
     callMode,
     isMuted,
     isRecording,
+    isRecipientSpeaking,
     isPlaying,
     error,
-    metrics,
     endCall,
     toggleMute,
   } = useRelayCallStore();
 
-  const [showMetrics, setShowMetrics] = useState(false);
-  const [showEventLog, setShowEventLog] = useState(false);
-
-  // WebSocket reports ended → immediately refetch call data from server
   const prevCallStatusRef = useRef(callStatus);
   useEffect(() => {
-    if (callStatus === 'ended' && prevCallStatusRef.current !== 'ended') {
-      refetchCallData?.();
-    }
+    if (callStatus === 'ended' && prevCallStatusRef.current !== 'ended') refetchCallData?.();
     prevCallStatusRef.current = callStatus;
   }, [callStatus, refetchCallData]);
 
@@ -82,55 +55,39 @@ export default function CallEffectPanel() {
   const BadgeIcon = modeBadgeIcon[communicationMode];
   const badgeLabel = t(`modeBadge.${COMM_MODE_KEYS[communicationMode]}`);
 
-  // 통화 완료 → 새 대화 시작 (useChat() 없이 직접 리셋)
-  // NOTE: useCallback은 반드시 조건부 return 전에 호출 (React Rules of Hooks)
   const handleNewChat = useCallback(() => {
     localStorage.removeItem('currentConversationId');
     localStorage.removeItem('currentCommunicationMode');
     localStorage.removeItem('currentSourceLang');
     localStorage.removeItem('currentTargetLang');
     resetDashboard();
-    window.location.href = '/';
+    window.location.href = '/outbound';
   }, [resetDashboard]);
 
-  // Relay/Agent 모드 판별
-  // Demo preview에서는 polling 타이밍과 무관하게 realtime UI(orb)를 강제 노출.
   const demoModeActive = isDemoMode();
   const isRealtimeMode = demoModeActive || call?.callMode === 'agent' || call?.callMode === 'relay';
-  const hasRelayWsUrl = demoModeActive || !!call?.relayWsUrl;
+  const hasRelayWsUrl = demoModeActive || Boolean(call?.relayWsUrl);
 
-  // Legacy 폴백: isRealtimeMode가 false면 기존 CallingStatus
   if (!isRealtimeMode || !hasRelayWsUrl) {
     if (loading && !call) {
       return (
-        <div className="flex flex-col items-center justify-center h-full gap-3">
-          <Loader2 className="size-6 text-[#0F172A] animate-spin" />
-          <p className="text-sm text-[#94A3B8]">{t('loadingCallInfo')}</p>
+        <div className="flex h-full flex-col items-center justify-center gap-3">
+          <Loader2 className="size-6 animate-spin text-[#6B2EAA]" />
+          <p className="text-sm text-[#706A73]">{t('loadingCallInfo')}</p>
         </div>
       );
     }
-
     if (pollError) {
       return (
-        <div className="flex items-center justify-center h-full">
-          <div className="text-center px-6">
-            <p className="text-sm text-red-500 mb-2">{pollError}</p>
-            <button
-              onClick={() => window.location.reload()}
-              className="text-sm text-[#64748B] hover:text-[#334155] underline"
-            >
-              {tc('retry')}
-            </button>
+        <div className="flex h-full items-center justify-center px-6 text-center">
+          <div>
+            <p className="mb-3 text-sm text-[#A83C3C]">{pollError}</p>
+            <button type="button" onClick={() => window.location.reload()} className="text-sm font-semibold text-[#6B2EAA] underline">{tc('retry')}</button>
           </div>
         </div>
       );
     }
-
-    return (
-      <div className="flex items-center justify-center h-full">
-        <CallingStatus call={call} elapsed={callDuration} />
-      </div>
-    );
+    return <div className="flex h-full items-center justify-center"><CallingStatus call={call} elapsed={callDuration} /></div>;
   }
 
   const isTerminal = !demoModeActive && (call?.status === 'COMPLETED' || call?.status === 'FAILED');
@@ -138,145 +95,65 @@ export default function CallEffectPanel() {
   const isActive = (callStatus !== 'ended' || endedAtBootstrap) && !isTerminal;
   const isEnded = !endedAtBootstrap && (callStatus === 'ended' || isTerminal);
 
-  const handleEndCall = () => {
-    endCall?.();
-  };
+  if (isEnded && call) return <CallSummaryPanel call={call} onNewChat={handleNewChat} />;
 
-  if (isEnded && call) {
-    return <CallSummaryPanel call={call} onNewChat={handleNewChat} />;
-  }
+  const state = (() => {
+    if (isRecipientSpeaking) return { label: t('recipientSpeaking'), hint: t('recipientSpeakingHint'), active: true, tone: 'purple' as const };
+    if (isMuted) return { label: t('muted'), hint: t('mutedHint'), active: false, tone: 'neutral' as const };
+    if (isRecording) return { label: t('speaking'), hint: t('operatorSpeakingHint'), active: true, tone: 'green' as const };
+    if (communicationMode === 'full_agent') return { label: t('aiHandling'), hint: t('aiHandlingHint'), active: isPlaying, tone: 'purple' as const };
+    return { label: t('listening'), hint: t('listeningHint'), active: isPlaying, tone: 'purple' as const };
+  })();
 
   return (
-    <div className="flex flex-col h-full bg-transparent overflow-hidden">
-      {/* Status Bar */}
-      <CallStatusBar
-        callStatus={callStatus}
-        callDuration={callDuration}
-        targetName={call?.targetName}
-        callMode={callMode}
-      />
+    <div className="flex h-full min-h-0 flex-col overflow-hidden bg-white">
+      <CallStatusBar callStatus={callStatus} callDuration={callDuration} targetName={call?.targetName} callMode={callMode} />
 
-      {/* Mode Badge */}
-      <div className="flex items-center gap-1.5 px-4 py-1.5 border-b border-[#E2E8F0]/80 bg-white/14">
-        <BadgeIcon className="size-3 text-[#64748B]" />
-        <span className="text-[10px] font-medium text-[#64748B]">{badgeLabel}</span>
-      </div>
+      {error && <div className="border-b border-[#EECACA] bg-[#FAECEB] px-4 py-2 text-xs text-[#A83C3C]">{error}</div>}
 
-      {/* Error display */}
-      {error && (
-        <div className="px-4 py-2 bg-red-50 border-b border-red-100">
-          <p className="text-xs text-red-600">{error}</p>
-        </div>
-      )}
+      <div className="flex min-h-0 flex-1 flex-col items-center justify-center bg-[#F8F7F9] px-6 py-8 text-center">
+        <div className="w-full max-w-sm rounded-2xl border border-[#E4DAEF] bg-white px-6 py-7 shadow-[0_8px_22px_rgba(31,26,34,.045)]">
+          <div className="mx-auto flex h-20 w-48 items-center justify-center rounded-[22px] border border-[#E4DAEF] bg-[#F8F4FC]">
+            <VoiceSignal active={state.active} tone={state.tone} />
+          </div>
+          <p className="mt-5 text-base font-bold text-[#211D24]">{state.label}</p>
+          <p className="mt-1.5 text-xs leading-5 text-[#706A73]">{state.hint}</p>
 
-      {/* Orb area */}
-      <div className="flex-1 flex flex-col items-center justify-center gap-4 px-6">
-        <div className="w-56 h-56">
-          <Orb
-            hue={getOrbHue(isRecording, isPlaying, isMuted)}
-            hoverIntensity={0.5}
-            rotateOnHover={true}
-            forceHoverState={isRecording || isPlaying}
-            backgroundColor="transparent"
-          />
+          <div className="mt-5 flex items-center justify-center gap-2 border-t border-[#EEEAEF] pt-4 text-xs text-[#706A73]">
+            <BadgeIcon className="size-3.5 text-[#6B2EAA]" />
+            <span className="font-semibold">{badgeLabel}</span>
+          </div>
         </div>
 
-        {/* Voice status text */}
-        <div className="text-center">
-          {isMuted ? (
-            <div className="flex items-center gap-1.5 text-sm text-[#94A3B8]">
-              <MicOff className="size-3.5" />
-              {t('muted')}
-            </div>
-          ) : isRecording ? (
-            <p className="text-sm text-blue-600 font-medium">{t('speaking')}</p>
-          ) : isPlaying ? (
-            <p className="text-sm text-teal-600 font-medium">
-              {communicationMode === 'full_agent' ? t('aiHandling') : t('listening')}
-            </p>
-          ) : (
-            <p className="text-sm text-[#64748B]">{t('listening')}</p>
-          )}
-        </div>
-
-        {/* AI Agent status card */}
         {communicationMode === 'full_agent' && (
-          <div className="w-full max-w-xs rounded-xl bg-white border border-[#E2E8F0] px-4 py-3">
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-full bg-[#0F172A] flex items-center justify-center">
-                <Bot className="size-4 text-white" />
-              </div>
-              <div className="flex-1">
-                <p className="text-xs font-medium text-[#1E293B]">{t('aiHandling')}</p>
-                <p className="text-[10px] text-[#94A3B8]">{t('aiHandlingHint')}</p>
-              </div>
-              <div className="w-2 h-2 rounded-full bg-teal-500 animate-pulse" />
-            </div>
+          <div className="mt-4 flex w-full max-w-sm items-center gap-3 rounded-xl border border-[#E4E1E6] bg-white px-4 py-3 text-left">
+            <span className="grid size-9 shrink-0 place-items-center rounded-[9px] bg-[#2E2932] text-white"><Bot className="size-4" /></span>
+            <div className="min-w-0"><p className="text-xs font-bold text-[#211D24]">{t('aiHandling')}</p><p className="mt-0.5 text-[11px] text-[#706A73]">{t('aiNoIntervention')}</p></div>
+            <span className="ml-auto size-2 shrink-0 animate-pulse rounded-full bg-[#247353]" />
           </div>
         )}
       </div>
 
-      {/* Metrics Panel */}
-      {showMetrics && <MetricsPanel metrics={metrics} />}
-
-      {/* Event Log Panel */}
-      {showEventLog && <EventLogPanel />}
-
-      {/* Controls */}
       {isActive && (
-        <div className="shrink-0 flex items-center gap-3 px-4 py-3 border-t border-[#E2E8F0]">
-          {/* Metrics toggle */}
-          <button
-            onClick={() => setShowMetrics(!showMetrics)}
-            className={`flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-medium transition-all ${
-              showMetrics
-                ? 'bg-[#0F172A] text-white'
-                : 'bg-[#F1F5F9] text-[#334155] border border-[#E2E8F0] hover:bg-[#E2E8F0]'
-            }`}
-          >
-            <BarChart3 className="size-3.5" />
-          </button>
-
-          {/* Event Log toggle */}
-          <button
-            onClick={() => setShowEventLog(!showEventLog)}
-            className={`flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-medium transition-all ${
-              showEventLog
-                ? 'bg-[#0F172A] text-white'
-                : 'bg-[#F1F5F9] text-[#334155] border border-[#E2E8F0] hover:bg-[#E2E8F0]'
-            }`}
-          >
-            <ScrollText className="size-3.5" />
-          </button>
-
-          {/* Mute button (voice modes only) */}
+        <div className="flex shrink-0 items-center gap-2 border-t border-[#E4E1E6] px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom,0px))]">
           {communicationMode === 'voice_to_voice' && (
             <button
+              type="button"
               onClick={() => toggleMute?.()}
-              className={`flex items-center gap-1.5 rounded-xl px-4 py-2 text-xs font-medium transition-all ${
+              className={`inline-flex h-11 items-center gap-2 rounded-[9px] border px-4 text-xs font-bold transition-colors ${
                 isMuted
-                  ? 'bg-red-50 text-red-600 border border-red-200 hover:bg-red-100'
-                  : 'bg-[#F1F5F9] text-[#334155] border border-[#E2E8F0] hover:bg-[#E2E8F0]'
+                  ? 'border-[#EECACA] bg-[#FAECEB] text-[#A83C3C] hover:bg-[#F6DEDC]'
+                  : 'border-[#D1CCD4] bg-white text-[#5E5861] hover:border-[#D8C9EA] hover:bg-[#F3EEF9] hover:text-[#6B2EAA]'
               }`}
             >
-              {isMuted ? (
-                <>
-                  <MicOff className="size-3.5" />
-                  {t('unmute')}
-                </>
-              ) : (
-                <>
-                  <Mic className="size-3.5" />
-                  {t('mute')}
-                </>
-              )}
+              {isMuted ? <MicOff className="size-4" /> : <Mic className="size-4" />}
+              {isMuted ? t('unmute') : t('mute')}
             </button>
           )}
-
-          {/* End call button */}
           <button
-            onClick={handleEndCall}
-            className="flex-1 flex items-center justify-center gap-2 rounded-xl bg-red-500 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-red-600"
+            type="button"
+            onClick={() => endCall?.()}
+            className="ml-auto inline-flex h-11 flex-1 items-center justify-center gap-2 rounded-[9px] bg-[#A83C3C] px-4 text-sm font-bold text-white transition-colors hover:bg-[#8F3030]"
           >
             <PhoneOff className="size-4" />
             {t('endCall')}

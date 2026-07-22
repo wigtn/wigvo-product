@@ -187,7 +187,12 @@ export default function CallHistoryPanel() {
   }, [router, t]);
 
   useEffect(() => {
-    const initialLoad = window.setTimeout(() => void loadCalls(false), 0);
+    const requestedCallId = new URLSearchParams(window.location.search).get('call');
+    selectedIdRef.current = requestedCallId;
+    const initialLoad = window.setTimeout(() => {
+      if (requestedCallId) setMobileView('detail');
+      void loadCalls(false);
+    }, 0);
     return () => window.clearTimeout(initialLoad);
   }, [loadCalls]);
 
@@ -198,6 +203,7 @@ export default function CallHistoryPanel() {
     setDetailError(null);
     setDetailLoading(true);
     setMobileView('detail');
+    router.replace(`/history?call=${encodeURIComponent(call.id)}`, { scroll: false });
     try {
       if (isDemoMode()) {
         setDetail(call);
@@ -221,9 +227,9 @@ export default function CallHistoryPanel() {
   }, [router, t]);
 
   return (
-    <section className="ops-page-frame overflow-hidden border-y border-[#DFDBE2]" aria-label={t('title')}>
-      <div className="grid min-h-[560px] lg:grid-cols-[336px_minmax(0,1fr)]">
-        <aside className={cn('min-w-0 lg:border-r lg:border-[#DFDBE2]', mobileView === 'detail' ? 'hidden lg:flex lg:flex-col' : 'flex flex-col')}>
+    <section className="ops-page-frame h-[min(720px,calc(100dvh-132px))] min-h-[560px] overflow-hidden border-y border-[#DFDBE2]" aria-label={t('title')}>
+      <div className="grid h-full min-h-0 lg:grid-cols-[336px_minmax(0,1fr)]">
+        <aside className={cn('min-h-0 min-w-0 overflow-hidden lg:border-r lg:border-[#DFDBE2]', mobileView === 'detail' ? 'hidden lg:flex lg:flex-col' : 'flex flex-col')}>
           <div className="flex min-h-[52px] items-center justify-between gap-3 border-b border-[#DFDBE2] px-3">
             <div className="flex min-w-0 items-center gap-2.5">
               <span className="grid size-8 shrink-0 place-items-center rounded-[8px] bg-[#F3EEF9] text-[#6B2EAA]"><Phone className="size-4" /></span>
@@ -267,7 +273,7 @@ export default function CallHistoryPanel() {
           </div>
         </aside>
 
-        <div className={cn('min-w-0', mobileView === 'detail' ? 'flex flex-col' : 'hidden lg:flex lg:flex-col')}>
+        <div className={cn('min-h-0 min-w-0 overflow-hidden', mobileView === 'detail' ? 'flex flex-col' : 'hidden lg:flex lg:flex-col')}>
           {detail ? (
             <CallDetail
               call={detail}
@@ -379,16 +385,16 @@ function CallDetail({
         {loading && <Loader2 className="size-4 animate-spin text-[#6B2EAA]" />}
       </div>
 
-      <div className="styled-scrollbar min-h-0 flex-1 overflow-y-auto">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         {error && (
-          <div className="m-4 flex items-center justify-between gap-3 rounded-[9px] bg-[#FAECEB] px-3 py-2.5 text-xs text-[#A83C3C]">
+          <div className="mx-3 mt-3 flex shrink-0 items-center justify-between gap-3 rounded-[9px] bg-[#FAECEB] px-3 py-2.5 text-xs text-[#A83C3C] sm:mx-5">
             <span>{error}</span>
             <button type="button" onClick={onRetry} className="shrink-0 font-bold underline">{tc('retry')}</button>
           </div>
         )}
 
-        <div className="mx-auto grid max-w-2xl gap-5 px-3 py-5 sm:px-5">
-          <div className="grid grid-cols-3 divide-x divide-[#DFDBE2] border-y border-[#DFDBE2] py-3">
+        <div className="mx-auto grid w-full max-w-3xl shrink-0 gap-3 px-3 py-3 sm:px-5">
+          <div className="grid grid-cols-3 divide-x divide-[#DFDBE2] border-y border-[#DFDBE2] py-2">
             <Metric icon={<CheckCircle2 className="size-4" />} label={t('callStatus')} value={statusLabel} />
             <Metric icon={<Clock3 className="size-4" />} label={t('duration')} value={formatDuration(call.durationS)} />
             <Metric icon={<ModeIcon className="size-4" />} label={t('mode')} value={ts(`mode.${MODE_KEYS[mode]}`)} />
@@ -396,7 +402,7 @@ function CallDetail({
 
           <section aria-labelledby="history-info-title">
             <SectionTitle id="history-info-title" icon={<Phone className="size-4" />} title={t('callInfo')} />
-            <div className="mt-2 grid border-y border-[#E3E0E5] sm:grid-cols-2 sm:divide-x sm:divide-[#E3E0E5]">
+            <div className="mt-2 grid grid-cols-2 border-y border-[#E3E0E5] [&>*:nth-child(n+3)]:border-t [&>*:nth-child(odd)]:border-r [&>*]:border-[#E3E0E5]">
               <InfoRow label={t('target')} value={call.targetName || t('unknownTarget')} />
               <InfoRow label={t('phoneNumber')} value={call.targetPhone || '-'} />
               <InfoRow label={t('createdAt')} value={formatFullDate(call.createdAt)} />
@@ -407,24 +413,34 @@ function CallDetail({
           {call.summary && (
             <section aria-labelledby="history-summary-title">
               <SectionTitle id="history-summary-title" icon={<FileText className="size-4" />} title={t('summary')} />
-              <p className="mt-2 rounded-[9px] bg-[#F2EFF3] px-4 py-3 text-sm leading-6 text-[#4F4953]">{call.summary}</p>
+              <p className="mt-2 rounded-[9px] bg-[#F2EFF3] px-3.5 py-2.5 text-xs leading-5 text-[#4F4953] sm:text-[13px]">{call.summary}</p>
             </section>
           )}
-
-          <section aria-labelledby="history-transcript-title">
-            <SectionTitle id="history-transcript-title" icon={<Languages className="size-4" />} title={t('transcript')} meta={t('transcriptHint')} />
-            {transcript.length > 0 ? (
-              <div className="mt-3 grid gap-3">
-                {transcript.map((entry, index) => <TranscriptBubble key={`${entry.timestamp}-${index}`} entry={entry} />)}
-              </div>
-            ) : (
-              <div className="mt-3 flex min-h-28 flex-col items-center justify-center gap-2 border-y border-[#E3E0E5] text-center">
-                <Languages className="size-5 text-[#B5AEB8]" />
-                <p className="text-xs text-[#918B98]">{t('noTranscript')}</p>
-              </div>
-            )}
-          </section>
         </div>
+
+        <section className="flex min-h-0 flex-1 flex-col border-t border-[#DFDBE2]" aria-labelledby="history-transcript-title">
+          <div className="mx-auto w-full max-w-3xl shrink-0 px-3 py-3 sm:px-5">
+            <SectionTitle id="history-transcript-title" icon={<Languages className="size-4" />} title={t('transcript')} meta={t('transcriptHint')} />
+          </div>
+          <div
+            className="styled-scrollbar min-h-0 flex-1 overflow-y-auto bg-[#FAF9FB] px-3 py-4 sm:px-5"
+            aria-label={t('transcript')}
+            tabIndex={0}
+          >
+            <div className="mx-auto w-full max-w-3xl">
+              {transcript.length > 0 ? (
+                <div className="grid gap-3">
+                  {transcript.map((entry, index) => <TranscriptBubble key={`${entry.timestamp}-${index}`} entry={entry} />)}
+                </div>
+              ) : (
+                <div className="flex min-h-28 flex-col items-center justify-center gap-2 text-center">
+                  <Languages className="size-5 text-[#B5AEB8]" />
+                  <p className="text-xs text-[#918B98]">{t('noTranscript')}</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </section>
       </div>
     </>
   );

@@ -21,7 +21,7 @@ function maskPhone(value: string): string {
 }
 
 function getCallTarget(call: Call): string {
-  if (call.status === 'COMPLETED' || call.status === 'FAILED') return `/result/${call.id}`;
+  if (call.status === 'COMPLETED' || call.status === 'FAILED') return `/history?call=${encodeURIComponent(call.id)}`;
   return `/calling/${call.id}`;
 }
 

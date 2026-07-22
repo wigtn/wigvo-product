@@ -9,7 +9,6 @@ import { History, LayoutDashboard, LogOut, Menu, PhoneIncoming, PhoneOutgoing, X
 import { createClient } from '@/lib/supabase/client';
 import LanguageSwitcher from '@/components/common/LanguageSwitcher';
 import { cn } from '@/lib/utils';
-import wigtnLogo from '../../../../docs/design/assets/wigtn-logo-white.png';
 
 type OperationsSection = 'dashboard' | 'outbound' | 'inbound' | 'history';
 
@@ -79,7 +78,7 @@ export default function OperationsShell({
   const sidebar = (
     <div className="flex h-full flex-col bg-[#15151E] px-3.5 pb-4 pt-5 text-white">
       <Link href="/" className="px-2 pb-5" onClick={() => setDrawerOpen(false)}>
-        <Image src={wigtnLogo} alt="WIGTN" className="h-auto w-[106px]" priority />
+        <Image src="/wigtn-logo-white.png" alt="WIGTN" width={600} height={160} className="h-auto w-[106px]" priority />
         <span className="mt-1.5 block text-[11px] font-semibold tracking-[0.08em] text-[#AAA3AE]">
           WIGVO OPERATIONS
         </span>

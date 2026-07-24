@@ -11,6 +11,9 @@ dist/
 build/
 .pytest_cache/
 
+# VAD eval TTS 캐시 (say/afconvert 산출물 — 재생성 가능)
+apps/relay-server/scripts/_vad_eval_cache/
+
 # Environment
 .env
 .env.local

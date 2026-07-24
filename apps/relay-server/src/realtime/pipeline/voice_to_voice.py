@@ -832,5 +832,15 @@ class VoiceToVoicePipeline(BasePipeline):
                 )
             )
             logger.info("Call %s timed out (max duration reached)", self.call.call_id)
+            # 알림만 하고 방치하면 통화·OpenAI 세션·Langfuse 루트 트레이스가 열린 채 누수된다.
+            # (실측: 종료 못 한 트레이스가 수일간 open으로 남음.) 서버가 실제 종료를 강제한다.
+            # cleanup_call은 tracer.end_call로 트레이스까지 닫고 idempotent라 정상 종료 경로와
+            # 중복돼도 안전. 별도 태스크로 스케줄 — 이 타이머 태스크는 곧 반환되므로
+            # stop()이 이 태스크를 await하는 self-await도 발생하지 않는다.
+            from src.call_manager import call_manager
+
+            asyncio.create_task(
+                call_manager.cleanup_call(self.call.call_id, reason="max_duration")
+            )
         except asyncio.CancelledError:
             pass

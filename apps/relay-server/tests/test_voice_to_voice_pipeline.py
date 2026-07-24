@@ -1348,3 +1348,59 @@ class TestVoiceToVoiceSessionBTranslation:
         call_kwargs = router.session_b.session.create_response.call_args
         assert call_kwargs.kwargs.get("instructions") is not None
         assert "translate" in call_kwargs.kwargs["instructions"].lower()
+
+
+# ===========================================================================
+# TestCallDurationTimeout — 타임아웃 시 실제 정리 (트레이스 누수 방지)
+# ===========================================================================
+
+
+class TestCallDurationTimeout:
+    """max_call_duration 도달 시 알림만 하고 방치하지 않고 cleanup_call을 건다.
+
+    이전엔 타이머가 timeout 상태만 보내고 로그만 찍어, 통화·세션·Langfuse 루트
+    트레이스가 열린 채 누수됐다(실측: 종료 못 한 트레이스가 수일간 open).
+    """
+
+    @pytest.mark.asyncio
+    async def test_timeout_schedules_cleanup(self):
+        from src.call_manager import call_manager
+
+        router = _make_router()
+        pipeline = router._pipeline
+        pipeline._notify_app = AsyncMock()
+
+        with (
+            patch("src.realtime.pipeline.voice_to_voice.settings") as ms,
+            patch.object(call_manager, "cleanup_call", new=AsyncMock()) as mock_cleanup,
+        ):
+            ms.call_warning_ms = 1        # 0.001s
+            ms.max_call_duration_ms = 2   # 0.002s
+            await pipeline._call_duration_timer()
+            await asyncio.sleep(0.02)     # 스케줄된 cleanup 태스크 실행 대기
+
+        mock_cleanup.assert_awaited_once()
+        assert mock_cleanup.call_args.args[0] == router.call.call_id
+        assert mock_cleanup.call_args.kwargs.get("reason") == "max_duration"
+
+    @pytest.mark.asyncio
+    async def test_cancelled_timer_does_not_clean_up(self):
+        """타이머가 정상 취소(통화가 먼저 끝남)되면 cleanup을 걸지 않는다."""
+        from src.call_manager import call_manager
+
+        router = _make_router()
+        pipeline = router._pipeline
+        pipeline._notify_app = AsyncMock()
+
+        with (
+            patch("src.realtime.pipeline.voice_to_voice.settings") as ms,
+            patch.object(call_manager, "cleanup_call", new=AsyncMock()) as mock_cleanup,
+        ):
+            ms.call_warning_ms = 5_000
+            ms.max_call_duration_ms = 10_000
+            task = asyncio.create_task(pipeline._call_duration_timer())
+            await asyncio.sleep(0.01)
+            task.cancel()
+            await asyncio.sleep(0.01)
+
+        mock_cleanup.assert_not_awaited()

@@ -28,24 +28,24 @@ logger = logging.getLogger(__name__)
 
 # OpenInference 의미 규약 — MEGA Loop(및 Arize/Phoenix)가 트레이스를 읽는 표준.
 #
-# ⚠️ 실측 확정(2026-07-25): MEGA는 Langfuse REST 관측의
-#   `metadata.attributes["openinference.span.kind"]`  (metadata 하위 attributes)
-# 를 읽는다. 이는 OpenInference/OTLP 계측이 OTel span attribute로 보냈을 때 Langfuse가
-# 저장하는 바로 그 위치다 — MegaCode가 말한 "OTel span attribute"의 Langfuse-REST 실체.
-# 확인된 세 방식:
-#   - top-level metadata[key]       → metadata.key       (위치 다름, MEGA 안 읽음)
-#   - _otel_span.set_attribute(key) → 증발 (네이티브 SDK가 커스텀 span attr export 안 함)
-#   - metadata={"attributes":{key}} → metadata.attributes.key  ✅ (OTLP와 동일 JSON)
-# 그래서 네이티브 SDK로도 metadata를 attributes 하위에 중첩하면 정확히 그 위치가 나온다.
+# ⚠️ 실측 확정(2026-07-25): MEGA가 읽는 "declared span kind"는 Langfuse 관측의
+# **`type` 필드**다. Langfuse는 openinference.span.kind를 이 type으로 매핑한다
+# (OTLP 실측: openinference.span.kind=AGENT → type=AGENT). 네이티브 SDK에선
+# **`as_type=`**으로 직접 세팅한다: chain→CHAIN, generation→GENERATION(=LLM),
+# guardrail→GUARDRAIL, agent→AGENT, tool→TOOL.
+#   - root=SPAN(as_type 없음) 이면 kind 없음으로 걸린다 → as_type="chain" 필요.
+#   - 번역 턴은 as_type="generation"(=LLM kind)라 이미 OK.
+# metadata.attributes["openinference.span.kind"]는 **보조**로 함께 남긴다(_oi_kind_meta) —
+# top-level metadata나 _otel_span.set_attribute는 안 읽힌다(실측). type 필드가 1차.
 # input.value/output.value는 native input/output 필드로 이미 인식되므로 중복 안 넣는다.
 _OI_KIND = "openinference.span.kind"
 
 
 def _oi_kind_meta(kind: str) -> dict:
-    """openinference.span.kind를 MEGA가 읽는 위치(metadata.attributes)에 심을 dict.
+    """openinference.span.kind를 metadata.attributes에도 보조로 심을 dict.
 
-    metadata에 이 dict를 merge하면 Langfuse REST에서
-    metadata.attributes["openinference.span.kind"] = kind 로 뜬다 (OTLP 계측과 동일 JSON).
+    1차 인식은 관측 type 필드(as_type)로 하고, 이건 OpenInference 규약을 따르는
+    리더를 위한 보조 사본이다. Langfuse REST에서 metadata.attributes[key]=kind 로 뜬다.
     """
     return {"attributes": {_OI_KIND: kind}}
 
@@ -141,6 +141,9 @@ class LangfuseTracer:
             # 루트 observation 이름이 곧 trace 이름이 된다.
             root = self._client.start_observation(
                 name=f"📞 WIGVO Call · {call.source_language}↔{call.target_language} · {mode}",
+                # as_type=chain → Langfuse type=CHAIN. MEGA는 이 type 필드를 span kind로 읽는다
+                # (metadata.attributes는 보조). 루트는 비-LLM 체인.
+                as_type="chain",
                 # native input = MEGA Loop가 읽는 input.value (진입값)
                 input=entry,
                 metadata={
@@ -269,7 +272,9 @@ class LangfuseTracer:
             meta.update(_oi_kind_meta("GUARDRAIL" if is_error else "CHAIN"))
             obs = root.start_observation(
                 name=name,
-                as_type="event",
+                # 오류=guardrail, 정상=chain → Langfuse type을 선언된 span kind로.
+                # (MEGA는 type 필드를 span kind로 읽는다; metadata.attributes는 보조.)
+                as_type="guardrail" if is_error else "chain",
                 # level=ERROR면 Langfuse가 OTel span status도 ERROR로 세팅한다
                 # (MegaCode Q3: 오류 span은 ERROR status여야 감지 정확).
                 level="ERROR" if is_error else "DEFAULT",
@@ -312,9 +317,9 @@ class LangfuseTracer:
                 safe.update(_oi_kind_meta("CHAIN"))  # OpenInference: 제어 흐름 스팬
                 root = self._roots.get(call_id) if call_id else None
                 if root is not None:
-                    obs = root.start_observation(name=name, as_type="span", metadata=safe)
+                    obs = root.start_observation(name=name, as_type="chain", metadata=safe)
                 elif self._client is not None:
-                    obs = self._client.start_observation(name=name, metadata=safe)
+                    obs = self._client.start_observation(name=name, as_type="chain", metadata=safe)
             except Exception:
                 logger.warning("Langfuse flow_span 시작 실패 (무시)", exc_info=True)
                 obs = None

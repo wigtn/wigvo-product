@@ -44,11 +44,17 @@ def _enabled_tracer():
 
 
 class TestRootInstrumentation:
+    def test_root_type_is_chain(self):
+        t, root = _enabled_tracer()
+        t.start_call(_make_call())
+        kwargs = t._client.start_observation.call_args.kwargs
+        assert kwargs["as_type"] == "chain"           # Langfuse type=CHAIN (MEGA가 읽는 1차)
+
     def test_root_kind_in_metadata_attributes(self):
         t, root = _enabled_tracer()
         t.start_call(_make_call())
         kwargs = t._client.start_observation.call_args.kwargs
-        assert _span_kind(kwargs) == "CHAIN"          # metadata.attributes에
+        assert _span_kind(kwargs) == "CHAIN"          # metadata.attributes에 보조
         assert _OI_KIND not in kwargs["metadata"]      # top-level metadata엔 없음
 
     def test_root_input_is_native_field(self):
@@ -78,6 +84,7 @@ class TestEventInstrumentation:
         t.record_event(_make_call(), name="🛑 Hallucination blocked", is_error=True)
         kwargs = root.start_observation.call_args.kwargs
         assert kwargs["level"] == "ERROR"            # OTel span status ERROR
+        assert kwargs["as_type"] == "guardrail"      # type=GUARDRAIL
         assert _span_kind(kwargs) == "GUARDRAIL"
 
     def test_normal_event_default_and_chain(self):
@@ -86,6 +93,7 @@ class TestEventInstrumentation:
         t.record_event(_make_call(), name="🎙 Speaker match")
         kwargs = root.start_observation.call_args.kwargs
         assert kwargs["level"] == "DEFAULT"
+        assert kwargs["as_type"] == "chain"          # 정상 이벤트 type=CHAIN
         assert _span_kind(kwargs) == "CHAIN"
 
     def test_event_preserves_caller_metadata(self):
@@ -104,6 +112,7 @@ class TestFlowSpanInstrumentation:
         with t.flow_span("wi.dispatch", call_id="c1", state="CLAIMED"):
             pass
         kwargs = root.start_observation.call_args.kwargs
+        assert kwargs["as_type"] == "chain"
         assert _span_kind(kwargs) == "CHAIN"
 
 

@@ -32,6 +32,12 @@ export default function RelayCallProvider({
   const reset = useRelayCallStore((s) => s.reset);
   const startedRef = useRef(false);
   const prevCallIdRef = useRef(callingCallId);
+  const cleanupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const endCallRef = useRef(relay.endCall);
+
+  useEffect(() => {
+    endCallRef.current = relay.endCall;
+  }, [relay.endCall]);
 
   // callingCallId 변경 시 startedRef 리셋 (같은 마운트에서 새 통화 시작 가능)
   useEffect(() => {
@@ -48,7 +54,8 @@ export default function RelayCallProvider({
     // Demo preview path: force-start mock realtime call even before polling settles.
     if (isDemoMode()) {
       startedRef.current = true;
-      const demoWsUrl = call?.relayWsUrl ?? `${MOCK_WS_URL_PREFIX}${callingCallId}`;
+      const demoWsBase = call?.relayWsUrl ?? `${MOCK_WS_URL_PREFIX}${callingCallId}`;
+      const demoWsUrl = `${demoWsBase}${demoWsBase.includes('?') ? '&' : '?'}communicationMode=${communicationMode}`;
       const demoMode = (call?.callMode as CallMode | undefined) ?? 'relay';
       relay.startCall(callingCallId, demoWsUrl, demoMode);
       return;
@@ -57,7 +64,7 @@ export default function RelayCallProvider({
     if (!call?.relayWsUrl || !call.callMode) return;
     startedRef.current = true;
     relay.startCall(callingCallId, call.relayWsUrl, call.callMode as CallMode);
-  }, [call?.relayWsUrl, call?.callMode, callingCallId, relay]);
+  }, [call?.relayWsUrl, call?.callMode, callingCallId, communicationMode, relay]);
 
   // call 메타데이터 → store 동기화
   useEffect(() => {
@@ -114,12 +121,18 @@ export default function RelayCallProvider({
 
   // 언마운트 시 정리
   useEffect(() => {
+    if (cleanupTimerRef.current) {
+      clearTimeout(cleanupTimerRef.current);
+      cleanupTimerRef.current = null;
+    }
     return () => {
-      relay.endCall();
-      reset();
+      cleanupTimerRef.current = setTimeout(() => {
+        endCallRef.current();
+        reset();
+        cleanupTimerRef.current = null;
+      }, 0);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [reset]);
 
   return <>{children}</>;
 }

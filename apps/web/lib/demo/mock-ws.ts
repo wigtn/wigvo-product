@@ -42,7 +42,21 @@ export class MockWebSocket {
 
   constructor(url: string) {
     this.url = url;
-    this.timeline = [...DEMO_CAPTION_TIMELINE];
+    const communicationMode = new URL(url).searchParams.get('communicationMode');
+    this.timeline = DEMO_CAPTION_TIMELINE.map((event) => {
+      const isOutboundAi =
+        event.data.direction === 'outbound'
+        && (event.data.role === 'ai' || event.data.role === 'assistant');
+
+      if (communicationMode !== 'full_agent' && isOutboundAi) {
+        return {
+          ...event,
+          data: { ...event.data, role: 'user' },
+        };
+      }
+
+      return event;
+    });
 
     // Simulate connection open after 100ms
     const openTimer = setTimeout(() => {

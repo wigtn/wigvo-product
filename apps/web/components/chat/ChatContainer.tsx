@@ -100,10 +100,15 @@ export default function ChatContainer() {
     prevLoadingRef.current = isLoading;
   }, [isLoading, isComplete, isCallActive]);
 
-  // AI 음성 자막 제외 (사용자 입력의 번역이므로 중복 표시 불필요)
+  // 직접 통화의 AI 에코는 숨기되, AI 자율 통화에서는 AI가 실제 화자이므로 표시한다.
+  // Stage 1 원문은 Stage 2 번역 버블의 originalText로 병합되어 보조 표시된다.
   const visibleCaptions = useMemo(
-    () => captions.filter((entry) => entry.speaker !== 'ai' && entry.stage !== 1),
-    [captions],
+    () => captions.filter(
+      (entry) =>
+        entry.stage !== 1
+        && (entry.speaker !== 'ai' || callingCommunicationMode === 'full_agent'),
+    ),
+    [captions, callingCommunicationMode],
   );
 
   if (isInitializing) {
@@ -266,10 +271,12 @@ export default function ChatContainer() {
           <ChatInput
             ref={chatInputRef}
             onSend={sendMessage}
-            disabled={isLoading || isComplete || isCallActive}
+            disabled={isLoading || isComplete || isCallActive || isCallEnded}
             placeholder={
               isCallActive
                 ? t("callingPlaceholder")
+                : isCallEnded
+                  ? t("callEndedPlaceholder")
                 : isComplete
                   ? t("completePlaceholder")
                   : t("placeholder")

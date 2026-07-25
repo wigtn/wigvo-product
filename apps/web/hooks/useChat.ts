@@ -153,7 +153,7 @@ export function useChat(): UseChatReturn {
       }
       setErrorWithAutoDismiss(t('startError'));
     }
-  }, [handle401, setErrorWithAutoDismiss, t]);
+  }, [handle401, setErrorWithAutoDismiss, setScenarioSelected, t]);
 
   // ── resumeConversation (v4: 시나리오 상태 복원) ────────────
   const resumeConversation = useCallback(
@@ -161,8 +161,9 @@ export function useChat(): UseChatReturn {
       try {
         const data = await getConversation(id);
 
-        // 이미 완료된 대화면 새로 시작 (모드 선택 화면으로)
-        if (data.status === 'COMPLETED' || data.status === 'CALLING') {
+        // 완료된 대화만 새로 시작한다. CALLING 상태는 발신 화면이
+        // 실시간 메시지와 자막을 유지할 수 있도록 그대로 복원한다.
+        if (data.status === 'COMPLETED') {
           localStorage.removeItem(STORAGE_KEY_CONVERSATION_ID);
           localStorage.removeItem(STORAGE_KEY_COMMUNICATION_MODE);
           localStorage.removeItem(STORAGE_KEY_SOURCE_LANG);
@@ -223,7 +224,7 @@ export function useChat(): UseChatReturn {
         setTargetLang(resetPair2.target.code);
       }
     },
-    [handle401]
+    [handle401, setScenarioSelected]
   );
 
   // ── 초기화 (v4: 시나리오 선택 화면부터 시작) ────────────────
@@ -250,7 +251,7 @@ export function useChat(): UseChatReturn {
     };
 
     init();
-  }, [resumeConversation]);
+  }, [resumeConversation, setScenarioSelected]);
   
   // ── handleScenarioSelect (v5: 모드 + 시나리오 + 언어 선택 후 대화 시작) ───
   const handleScenarioSelect = useCallback(async (
@@ -420,7 +421,7 @@ export function useChat(): UseChatReturn {
     // 대시보드 초기화 (지도, 검색결과, 통화)
     resetDashboard();
     resetCalling();
-  }, [resetCalling]);
+  }, [resetCalling, resetDashboard, setScenarioSelected]);
 
   return {
     conversationId,

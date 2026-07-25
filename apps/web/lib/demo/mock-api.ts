@@ -9,6 +9,7 @@ import type {
   ChatResponse,
   Call,
   CreateConversationResponse,
+  Message,
 } from '@/shared/types';
 import type { CommunicationMode } from '@/shared/call-types';
 import {
@@ -24,10 +25,12 @@ import {
 
 // --- State: 채팅 step 카운터 (몇 번째 메시지인지 추적) ---
 let chatStepIndex = 0;
+let demoMessages: Message[] = [];
 
 /** 데모 리셋 (새 대화 시작 시) */
 export function resetDemoState(): void {
   chatStepIndex = 0;
+  demoMessages = [];
 }
 
 // --- Mock API Functions ---
@@ -36,18 +39,35 @@ export async function mockCreateConversation(): Promise<CreateConversationRespon
   resetDemoState();
   // 300ms 지연으로 자연스러운 로딩 표현
   await delay(300);
-  return { ...DEMO_CONVERSATION, createdAt: new Date().toISOString() };
+  const createdAt = new Date().toISOString();
+  if (DEMO_CONVERSATION.greeting) {
+    demoMessages = [{
+      id: `greeting-${DEMO_CONVERSATION_ID}`,
+      role: 'assistant',
+      content: DEMO_CONVERSATION.greeting,
+      createdAt,
+    }];
+  }
+  return { ...DEMO_CONVERSATION, createdAt };
 }
 
 export async function mockGetConversation(id: string): Promise<Conversation> {
   await delay(200);
+  if (demoMessages.length === 0 && DEMO_CONVERSATION.greeting) {
+    demoMessages = [{
+      id: `greeting-${DEMO_CONVERSATION_ID}`,
+      role: 'assistant',
+      content: DEMO_CONVERSATION.greeting,
+      createdAt: new Date().toISOString(),
+    }];
+  }
   const lastChat = DEMO_CHAT_SEQUENCE[Math.min(chatStepIndex - 1, DEMO_CHAT_SEQUENCE.length - 1)];
   return {
     id: id || DEMO_CONVERSATION_ID,
     userId: DEMO_USER_ID,
     status: lastChat?.conversation_status ?? 'COLLECTING',
     collectedData: lastChat?.collected ?? DEMO_CONVERSATION.collectedData,
-    messages: [],
+    messages: [...demoMessages],
     createdAt: DEMO_CONVERSATION.createdAt,
     updatedAt: new Date().toISOString(),
   };
@@ -55,17 +75,32 @@ export async function mockGetConversation(id: string): Promise<Conversation> {
 
 export async function mockSendChatMessage(
   _conversationId: string,
-  _message: string,
+  message: string,
   _communicationMode?: CommunicationMode,
   _locale?: string,
 ): Promise<ChatResponse> {
+  void _communicationMode;
+  void _locale;
+
   // 현재 step의 응답 반환
   const step = Math.min(chatStepIndex, DEMO_CHAT_SEQUENCE.length - 1);
   const response = DEMO_CHAT_SEQUENCE[step];
   chatStepIndex++;
+  demoMessages.push({
+    id: `user-${chatStepIndex}`,
+    role: 'user',
+    content: message,
+    createdAt: new Date().toISOString(),
+  });
 
   // 자연스러운 타이핑 지연 (800ms ~ 1.5s)
   await delay(800 + Math.random() * 700);
+  demoMessages.push({
+    id: `assistant-${chatStepIndex}`,
+    role: 'assistant',
+    content: response.message,
+    createdAt: new Date().toISOString(),
+  });
   return { ...response };
 }
 

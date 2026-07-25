@@ -138,10 +138,11 @@ export function useRelayCall(
               updated[updated.length - 1] = { ...last, text: last.text + text };
               return updated;
             });
-          } else if (stage === 2 && direction === 'inbound') {
-            // Stage 2(번역) 시작 시: 직전 Stage 1(원문)을 찾아 병합
+          } else if (stage === 2) {
+            // Stage 2(번역) 시작 시: 방향과 관계없이 직전 Stage 1(원문)을 찾아
+            // 한 버블로 병합한다. 번역문을 우선하고 원문은 보조 정보로 보존한다.
             setCaptions((prev) => {
-              // 직전 Stage 1 엔트리 찾기 (같은 speaker, inbound)
+              // 직전 Stage 1 엔트리 찾기 (같은 speaker)
               const lastStage1Idx = prev.length > 0 && prev[prev.length - 1].stage === 1
                   && prev[prev.length - 1].speaker === speaker
                 ? prev.length - 1

@@ -78,7 +78,7 @@ export default function HistoryList({ calls }: HistoryListProps) {
           <Inbox className="size-5 text-[#6B2EAA]" />
         </div>
         <p className="text-sm font-semibold text-[#1E1E28]">아직 통화 기록이 없습니다</p>
-        <p className="text-xs text-[#9A939E]">아웃바운드에서 전화를 시작해보세요</p>
+        <p className="text-xs text-[#9A939E]">발신 통화에서 전화를 시작해보세요</p>
       </div>
     );
   }

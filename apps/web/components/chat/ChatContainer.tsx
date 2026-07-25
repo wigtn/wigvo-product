@@ -5,6 +5,7 @@ import { useTranslations } from "next-intl";
 import { useChat } from "@/hooks/useChat";
 import { useDashboard } from "@/hooks/useDashboard";
 import { useRelayCallStore } from "@/hooks/useRelayCallStore";
+import { getPhoneNumberInputIssue } from "@/lib/validation";
 import ChatMessage from "./ChatMessage";
 import CaptionMessage from "./CaptionMessage";
 import CallStatusMessage from "./CallStatusMessage";
@@ -64,6 +65,17 @@ export default function ChatContainer() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const chatInputRef = useRef<ChatInputHandle>(null);
   const prevLoadingRef = useRef(isLoading);
+  const getPhoneWarning = useCallback(
+    (value: string) => {
+      const issue = getPhoneNumberInputIssue(value);
+      if (!issue) return null;
+
+      return issue === "missing_country_code"
+        ? t("phoneCountryCodeWarning")
+        : t("phoneFormatWarning");
+    },
+    [t],
+  );
 
   // 스크롤 + 포커스 (iOS 키보드 올라와도 동작하도록 scrollTop 직접 제어)
   useEffect(() => {
@@ -272,6 +284,7 @@ export default function ChatContainer() {
             ref={chatInputRef}
             onSend={sendMessage}
             disabled={isLoading || isComplete || isCallActive || isCallEnded}
+            getWarning={getPhoneWarning}
             placeholder={
               isCallActive
                 ? t("callingPlaceholder")

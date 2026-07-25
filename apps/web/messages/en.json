@@ -145,6 +145,9 @@
     "startError": "Failed to start conversation. Please refresh.",
     "sendError": "Failed to send message. Please try again.",
     "callError": "Failed to make the call. Please try again.",
+    "phoneCountryCodeWarning": "Include the country code. Example: +1 415-555-1234",
+    "phoneFormatWarning": "Check the international number format. Example: +1 415-555-1234",
+    "phoneCallBlocked": "Check the phone number. An international number with a country code is required.",
     "editPrompt": "Please tell me what you'd like to change.",
     "validationError": "Invalid input.",
     "conversationNotStarted": "Conversation has not started."

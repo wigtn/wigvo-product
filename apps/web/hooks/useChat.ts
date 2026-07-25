@@ -10,7 +10,7 @@ import {
   createCall,
   startCall,
 } from '@/lib/api';
-import { validateMessage } from '@/lib/validation';
+import { isValidPhoneNumber, validateMessage } from '@/lib/validation';
 import type {
   Message,
   CollectedData,
@@ -356,6 +356,15 @@ export function useChat(): UseChatReturn {
   const confirmingRef = useRef(false);
   const handleConfirm = useCallback(async () => {
     if (!conversationId || confirmingRef.current) return;
+
+    if (
+      !collectedData?.target_phone
+      || !isValidPhoneNumber(collectedData.target_phone)
+    ) {
+      setErrorWithAutoDismiss(t('phoneCallBlocked'));
+      return;
+    }
+
     confirmingRef.current = true;
 
     setIsLoading(true);
@@ -381,7 +390,7 @@ export function useChat(): UseChatReturn {
       setIsLoading(false);
       confirmingRef.current = false;
     }
-  }, [conversationId, communicationMode, handle401, setCallingCallId, setCallingCommunicationMode, setErrorWithAutoDismiss, t]);
+  }, [conversationId, collectedData, communicationMode, handle401, setCallingCallId, setCallingCommunicationMode, setErrorWithAutoDismiss, t]);
 
   // ── handleEdit: 수정하기 ──────────────────────────────────
   const handleEdit = useCallback(() => {

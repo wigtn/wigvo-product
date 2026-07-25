@@ -145,6 +145,9 @@
     "startError": "대화를 시작하지 못했습니다. 새로고침 해주세요.",
     "sendError": "메시지 전송에 실패했습니다. 다시 시도해주세요.",
     "callError": "전화 걸기에 실패했습니다. 다시 시도해주세요.",
+    "phoneCountryCodeWarning": "국가번호를 포함해 입력해 주세요. 예: +82 10-1234-5678",
+    "phoneFormatWarning": "국제 전화번호 형식을 확인해 주세요. 예: +82 10-1234-5678",
+    "phoneCallBlocked": "전화번호 형식을 확인해 주세요. 국가번호를 포함한 국제번호가 필요합니다.",
     "editPrompt": "수정할 내용을 말씀해주세요.",
     "validationError": "입력이 올바르지 않습니다.",
     "conversationNotStarted": "대화가 시작되지 않았습니다."

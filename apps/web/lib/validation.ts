@@ -96,8 +96,37 @@ export function validateMessage(message: string): { valid: boolean; error?: stri
  * 전화번호 형식 검사 (E.164 국제형식, +국가코드 필수)
  */
 export function isValidPhoneNumber(phone: string): boolean {
-  const cleaned = phone.replace(/[\s-]/g, '');
+  const cleaned = phone.replace(/[^\d+]/g, '');
   return PHONE_NUMBER_REGEX.test(cleaned);
+}
+
+export type PhoneNumberInputIssue =
+  | 'missing_country_code'
+  | 'invalid_format';
+
+/**
+ * 전화번호만 입력한 메시지를 프론트에서 선제 검사합니다.
+ *
+ * 일반 채팅의 날짜·인원수 같은 숫자를 전화번호로 오인하지 않도록,
+ * 숫자와 전화번호 구분 문자만으로 이루어진 입력에만 적용합니다.
+ */
+export function getPhoneNumberInputIssue(
+  input: string
+): PhoneNumberInputIssue | null {
+  const trimmed = input.trim();
+
+  if (!/^\+?[\d\s().-]{8,}$/.test(trimmed)) {
+    return null;
+  }
+
+  const normalized = trimmed.replace(/[^\d+]/g, '');
+  if (isValidPhoneNumber(normalized)) {
+    return null;
+  }
+
+  return normalized.startsWith('+')
+    ? 'invalid_format'
+    : 'missing_country_code';
 }
 
 // -----------------------------------------------------------------------------

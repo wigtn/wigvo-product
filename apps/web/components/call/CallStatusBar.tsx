@@ -6,7 +6,6 @@ interface CallStatusBarProps {
   callStatus: 'idle' | 'connecting' | 'waiting' | 'connected' | 'ended';
   callDuration: number;
   targetName?: string | null;
-  callMode: 'agent' | 'relay';
 }
 
 function formatDuration(seconds: number): string {
@@ -34,21 +33,29 @@ export default function CallStatusBar({
   callStatus,
   callDuration,
   targetName,
-  callMode,
 }: CallStatusBarProps) {
-  const isActive = callStatus === 'connected' || callStatus === 'waiting';
+  const isConnected = callStatus === 'connected';
+  const isConnecting = callStatus === 'connecting' || callStatus === 'waiting';
 
   return (
-    <div className="flex min-h-[72px] items-center justify-between gap-4 border-b border-[#E4E1E6] bg-white px-4 sm:px-5">
+    <div className="flex min-h-[68px] items-center justify-between gap-4 border-b border-[#E4E1E6] bg-white px-4">
       <div className="flex min-w-0 items-center gap-3">
         <div
-          className={`flex size-10 shrink-0 items-center justify-center rounded-full ${
-            isActive ? 'bg-[#EDF6F1]' : 'bg-[#F0EEF1]'
+          className={`flex size-9 shrink-0 items-center justify-center rounded-[10px] ${
+            isConnected
+              ? 'bg-[#EDF6F1]'
+              : isConnecting
+                ? 'bg-[#F3EEF9]'
+                : 'bg-[#F0EEF1]'
           }`}
         >
           <Phone
             className={`size-4 ${
-              isActive ? 'text-[#247353]' : 'text-[#8A838D]'
+              isConnected
+                ? 'text-[#247353]'
+                : isConnecting
+                  ? 'text-[#6B2EAA]'
+                  : 'text-[#8A838D]'
             }`}
           />
         </div>
@@ -59,19 +66,14 @@ export default function CallStatusBar({
                 {targetName}
               </span>
             )}
-            <span
-              className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-bold ${
-                callMode === 'agent'
-                  ? 'bg-[#F3EEF9] text-[#6B2EAA]'
-                  : 'bg-[#EEEAF0] text-[#625D65]'
-              }`}
-            >
-              {callMode === 'agent' ? 'AI AGENT' : 'RELAY'}
-            </span>
           </div>
           <div className="mt-1 flex items-center gap-1.5">
-            {isActive && (
-              <span className="inline-block size-1.5 animate-pulse rounded-full bg-[#247353]" />
+            {(isConnected || isConnecting) && (
+              <span
+                className={`inline-block size-1.5 animate-pulse rounded-full ${
+                  isConnected ? 'bg-[#247353]' : 'bg-[#9B51E0]'
+                }`}
+              />
             )}
             <span className="text-xs text-[#706A73]">
               {getStatusLabel(callStatus)}

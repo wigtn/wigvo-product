@@ -115,7 +115,6 @@ export default function RealtimeCallView({
         callStatus={relay.callStatus}
         callDuration={relay.callDuration}
         targetName={targetName}
-        callMode={callMode}
       />
 
       <div className="flex min-h-[62px] items-center justify-between gap-3 border-b border-[#E4E1E6] bg-[#FBFAFC] px-4 sm:px-5">

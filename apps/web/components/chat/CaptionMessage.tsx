@@ -41,6 +41,18 @@ export default function CaptionMessage({ entry }: CaptionMessageProps) {
         <p className={cn(isStage1 ? 'text-xs' : 'text-sm')}>
           {entry.text}
         </p>
+        {entry.originalText && entry.originalText !== entry.text && (
+          <p
+            className={cn(
+              'mt-2 border-t pt-2 text-xs leading-relaxed',
+              isUser || isAi
+                ? 'border-white/15 text-white/55'
+                : 'border-[#E4E1E6] text-[#8A838D]',
+            )}
+          >
+            {entry.originalText}
+          </p>
+        )}
       </div>
     </div>
   );

@@ -47,7 +47,7 @@ export default function CallPage() {
 
   if (loading) {
     return (
-      <OperationsShell active="outbound" title="아웃바운드 통화" description={callDescription}>
+      <OperationsShell active="outbound" title="발신 통화" description={callDescription}>
         <div className="page-card mx-auto flex max-w-md flex-col items-center gap-3 py-14">
           <Loader2 className="size-6 animate-spin text-[#9B51E0]" />
           <p className="text-sm text-[#706A73]">통화 정보를 불러오는 중...</p>
@@ -58,7 +58,7 @@ export default function CallPage() {
 
   if (error || !call) {
     return (
-      <OperationsShell active="outbound" title="아웃바운드 통화" description={callDescription}>
+      <OperationsShell active="outbound" title="발신 통화" description={callDescription}>
         <div className="page-card mx-auto max-w-md px-6 py-12 text-center">
           <p className="mb-2 text-sm text-red-500">{error ?? '통화를 찾을 수 없습니다'}</p>
           <button type="button" onClick={() => router.push('/')} className="text-sm text-[#706A73] underline hover:text-[#6B2EAA]">
@@ -82,7 +82,7 @@ export default function CallPage() {
 
   if (!call.relayWsUrl) {
     return (
-      <OperationsShell active="outbound" title="아웃바운드 통화" description={callDescription}>
+      <OperationsShell active="outbound" title="발신 통화" description={callDescription}>
         <div className="page-card mx-auto max-w-md px-6 py-12 text-center">
           <p className="text-sm text-[#706A73]">통화 연결 정보가 없습니다</p>
           <button type="button" onClick={() => router.push('/')} className="mt-2 text-sm text-[#706A73] underline hover:text-[#6B2EAA]">
@@ -96,7 +96,7 @@ export default function CallPage() {
   return (
     <OperationsShell
       active="outbound"
-      title="아웃바운드 통화"
+      title="발신 통화"
       description={call.targetName ? `${call.targetName} 통화 중` : '실시간 통화 중'}
       workspace
     >

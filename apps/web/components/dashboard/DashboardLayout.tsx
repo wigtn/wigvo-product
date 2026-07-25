@@ -12,7 +12,7 @@ import { cn } from '@/lib/utils';
 
 function WorkspaceGrid({ children }: { children: ReactNode }) {
   return (
-    <div className="grid min-h-0 w-full flex-1 gap-3 lg:grid-cols-[420px_minmax(0,1fr)] lg:gap-4">
+    <div className="grid min-h-0 w-full flex-1 gap-3 lg:grid-cols-[380px_minmax(0,1fr)] lg:gap-4">
       {children}
     </div>
   );

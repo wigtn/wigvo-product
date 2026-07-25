@@ -4,6 +4,7 @@ import { useEffect, useRef } from 'react';
 import { useCallPolling } from '@/hooks/useCallPolling';
 import { useRelayCall } from '@/hooks/useRelayCall';
 import { useRelayCallStore } from '@/hooks/useRelayCallStore';
+import { useDashboard } from '@/hooks/useDashboard';
 import type { CallMode, CommunicationMode } from '@/shared/call-types';
 import { isDemoMode, MOCK_WS_URL_PREFIX } from '@/lib/demo';
 
@@ -11,6 +12,13 @@ interface RelayCallProviderProps {
   callingCallId: string;
   communicationMode: CommunicationMode;
   children: React.ReactNode;
+}
+
+function clearCurrentConversationStorage(): void {
+  localStorage.removeItem('currentConversationId');
+  localStorage.removeItem('currentCommunicationMode');
+  localStorage.removeItem('currentSourceLang');
+  localStorage.removeItem('currentTargetLang');
 }
 
 /**
@@ -30,6 +38,7 @@ export default function RelayCallProvider({
   const relay = useRelayCall(communicationMode);
   const syncState = useRelayCallStore((s) => s.syncState);
   const reset = useRelayCallStore((s) => s.reset);
+  const resetDashboard = useDashboard((s) => s.resetDashboard);
   const startedRef = useRef(false);
   const prevCallIdRef = useRef(callingCallId);
   const cleanupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -129,10 +138,12 @@ export default function RelayCallProvider({
       cleanupTimerRef.current = setTimeout(() => {
         endCallRef.current();
         reset();
+        resetDashboard();
+        clearCurrentConversationStorage();
         cleanupTimerRef.current = null;
       }, 0);
     };
-  }, [reset]);
+  }, [reset, resetDashboard]);
 
   return <>{children}</>;
 }

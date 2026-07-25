@@ -69,6 +69,8 @@ export const useDashboard = create<DashboardState>((set) => ({
   resetDashboard: () =>
     set({
       scenarioSelected: false,
+      callingCallId: null,
+      callingCommunicationMode: null,
     }),
 
   // 통화 상태 초기화

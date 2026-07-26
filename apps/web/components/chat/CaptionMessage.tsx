@@ -13,6 +13,12 @@ export default function CaptionMessage({ entry }: CaptionMessageProps) {
   const isUser = entry.speaker === 'user';
   const isAi = entry.speaker === 'ai';
   const isStage1 = entry.stage === 1;
+  const hasPair = Boolean(
+    entry.text
+    && entry.originalText
+    && entry.originalText !== entry.text,
+  );
+  const primaryText = entry.text || entry.originalText || '';
 
   const speakerLabel =
     isUser ? t('you')
@@ -38,11 +44,11 @@ export default function CaptionMessage({ entry }: CaptionMessageProps) {
         )}>
           {speakerLabel}
         </div>
-        <p className={cn(isStage1 ? 'text-xs' : 'text-sm')}>
-          {entry.text}
+        <p className={cn(isStage1 ? 'text-xs' : 'text-sm', 'font-medium')}>
+          {primaryText}
         </p>
-        {entry.originalText && entry.originalText !== entry.text && (
-          <p
+        {hasPair && (
+          <div
             className={cn(
               'mt-2 border-t pt-2 text-xs leading-relaxed',
               isUser || isAi
@@ -50,8 +56,11 @@ export default function CaptionMessage({ entry }: CaptionMessageProps) {
                 : 'border-[#E4E1E6] text-[#8A838D]',
             )}
           >
-            {entry.originalText}
-          </p>
+            <span className="mb-0.5 block text-[9px] font-bold uppercase tracking-[0.08em] opacity-75">
+              {t('original')}
+            </span>
+            <p>{entry.originalText}</p>
+          </div>
         )}
       </div>
     </div>

@@ -47,6 +47,12 @@ export default function LiveCaptionPanel({
         {displayCaptions.map((entry) => {
           const isOutgoing = entry.speaker === 'user' || entry.speaker === 'ai';
           const isStage1 = entry.stage === 1;
+          const hasPair = Boolean(
+            entry.text
+            && entry.originalText
+            && entry.originalText !== entry.text,
+          );
+          const primaryText = entry.text || entry.originalText || '';
           const speaker = entry.speaker === 'user'
             ? t('caption.you')
             : entry.speaker === 'ai'
@@ -66,12 +72,15 @@ export default function LiveCaptionPanel({
                     : 'rounded-tl-md border border-[#E4E1E6] bg-white text-[#211D24]'
                 }`}
               >
-                {entry.originalText && (
-                  <p className={`mb-2 border-b pb-2 text-xs leading-relaxed ${isOutgoing ? 'border-white/15 text-[#C6BEC9]' : 'border-[#EEEAEF] text-[#8A838D]'}`}>
-                    {entry.originalText}
-                  </p>
+                <p className={`${expanded && !compact ? 'text-[15px]' : 'text-sm'} font-medium leading-relaxed`}>{primaryText}</p>
+                {hasPair && (
+                  <div className={`mt-2 border-t pt-2 ${isOutgoing ? 'border-white/15 text-[#C6BEC9]' : 'border-[#EEEAEF] text-[#8A838D]'}`}>
+                    <span className="mb-0.5 block text-[9px] font-bold uppercase tracking-[0.08em] opacity-70">
+                      {t('caption.original')}
+                    </span>
+                    <p className="text-xs leading-relaxed">{entry.originalText}</p>
+                  </div>
                 )}
-                <p className={`${expanded && !compact ? 'text-[15px]' : 'text-sm'} font-medium leading-relaxed`}>{entry.text}</p>
               </div>
             </article>
           );

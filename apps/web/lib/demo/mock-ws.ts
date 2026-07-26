@@ -44,14 +44,18 @@ export class MockWebSocket {
     this.url = url;
     const communicationMode = new URL(url).searchParams.get('communicationMode');
     this.timeline = DEMO_CAPTION_TIMELINE.map((event) => {
-      const isOutboundAi =
-        event.data.direction === 'outbound'
-        && (event.data.role === 'ai' || event.data.role === 'assistant');
+      const isDirectOutbound =
+        communicationMode !== 'full_agent'
+        && event.data.direction === 'outbound';
 
-      if (communicationMode !== 'full_agent' && isOutboundAi) {
+      if (isDirectOutbound) {
+        const isOriginal =
+          event.type === 'caption.original'
+          || event.data.stage === 1;
         return {
           ...event,
-          data: { ...event.data, role: 'user' },
+          // 실제 relay와 동일하게 내 원문은 user, 번역 스트림은 assistant로 보낸다.
+          data: { ...event.data, role: isOriginal ? 'user' : 'assistant' },
         };
       }
 

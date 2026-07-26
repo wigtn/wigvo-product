@@ -28,6 +28,18 @@ function pushEventLog(entry: Omit<EventLogEntry, 'id' | 'timestamp'>) {
 type CallStatus = 'idle' | 'connecting' | 'waiting' | 'connected' | 'ended';
 type TranslationState = 'idle' | 'processing' | 'done';
 
+interface ActiveCaptionTurn {
+  id: string;
+  speaker: CaptionEntry['speaker'];
+  hasOriginal: boolean;
+}
+
+function appendOriginalText(current: string | undefined, next: string): string {
+  if (!current) return next;
+  if (current.endsWith(' ') || next.startsWith(' ')) return current + next;
+  return `${current} ${next}`;
+}
+
 interface UseRelayCallReturn {
   callStatus: CallStatus;
   translationState: TranslationState;
@@ -75,13 +87,10 @@ export function useRelayCall(
   // Caption counter for unique IDs
   const captionCounterRef = useRef(0);
 
-  // Track current streaming caption for delta accumulation
-  // Streaming deltas from the same speaker/direction/stage are merged into one caption
-  const streamingRef = useRef<{
-    direction: string;
-    stage: number | undefined;
-    speaker: string;
-  } | null>(null);
+  // 한 발화의 원문과 번역문은 도착 순서와 관계없이 같은 버블에 합친다.
+  const outboundTurnRef = useRef<ActiveCaptionTurn | null>(null);
+  const inboundTurnRef = useRef<ActiveCaptionTurn | null>(null);
+  const localTurnPendingRef = useRef(false);
 
   const stopRecipientSpeaking = useCallback(() => {
     if (recipientSpeakingTimerRef.current) {
@@ -114,87 +123,96 @@ export function useRelayCall(
             : msg.type === WsMessageType.CAPTION_TRANSLATED ? 2
             : (msg.data.stage as 1 | 2 | undefined);
 
-          const direction = (msg.data.direction as string) ?? 'unknown';
-          // Server sends "role" (assistant/user/recipient) — map to client speaker type
           const rawRole = (msg.data.role as string) ?? (msg.data.speaker as string) ?? 'recipient';
           const ROLE_TO_SPEAKER: Record<string, CaptionEntry['speaker']> = {
             assistant: 'ai', user: 'user', recipient: 'recipient', ai: 'ai',
           };
           const speaker: CaptionEntry['speaker'] = ROLE_TO_SPEAKER[rawRole] ?? 'recipient';
+          const rawDirection = (msg.data.direction as string) ?? 'unknown';
+          const direction = rawDirection === 'inbound' || rawDirection === 'outbound'
+            ? rawDirection
+            : speaker === 'recipient' ? 'inbound' : 'outbound';
           const text = (msg.data.text as string) ?? '';
+          if (!text) break;
 
-          const cur = streamingRef.current;
+          const isOriginal = stage === 1
+            || (direction === 'outbound' && rawRole === 'user');
+          const turnRef = direction === 'inbound' ? inboundTurnRef : outboundTurnRef;
 
-          // Append to existing caption if same speaker + direction + stage
-          if (cur &&
-              cur.direction === direction &&
-              cur.stage === stage &&
-              cur.speaker === speaker) {
-            setCaptions((prev) => {
-              if (prev.length === 0) return prev;
-              const updated = [...prev];
-              const last = updated[updated.length - 1];
-              // Stage 2 스트리밍 중: 원문도 함께 누적
-              updated[updated.length - 1] = { ...last, text: last.text + text };
-              return updated;
-            });
-          } else if (stage === 2) {
-            // Stage 2(번역) 시작 시: 방향과 관계없이 직전 Stage 1(원문)을 찾아
-            // 한 버블로 병합한다. 번역문을 우선하고 원문은 보조 정보로 보존한다.
-            setCaptions((prev) => {
-              // 직전 Stage 1 엔트리 찾기 (같은 speaker)
-              const lastStage1Idx = prev.length > 0 && prev[prev.length - 1].stage === 1
-                  && prev[prev.length - 1].speaker === speaker
-                ? prev.length - 1
-                : -1;
-
-              if (lastStage1Idx >= 0) {
-                // Stage 1을 제거하고 originalText로 보존한 Stage 2 엔트리 생성
-                const stage1 = prev[lastStage1Idx];
-                captionCounterRef.current += 1;
-                const merged: CaptionEntry = {
-                  id: `caption-${captionCounterRef.current}`,
-                  speaker,
-                  text,
-                  originalText: stage1.text,
-                  language: (msg.data.language as string) ?? '',
-                  isFinal: false,
-                  timestamp: Date.now(),
-                  stage: 2,
-                };
-                const updated = prev.slice(0, lastStage1Idx);
-                return [...updated, merged];
-              }
-
-              // Stage 1이 없으면 단독 Stage 2
-              captionCounterRef.current += 1;
-              const entry: CaptionEntry = {
-                id: `caption-${captionCounterRef.current}`,
-                speaker,
-                text,
-                language: (msg.data.language as string) ?? '',
-                isFinal: false,
-                timestamp: Date.now(),
-                stage,
-              };
-              return [...prev, entry];
-            });
-            streamingRef.current = { direction, stage, speaker };
+          let turnSpeaker: CaptionEntry['speaker'];
+          if (direction === 'inbound') {
+            turnSpeaker = 'recipient';
+          } else if (communicationMode === 'full_agent') {
+            turnSpeaker = rawRole === 'user' ? 'user' : 'ai';
+          } else if (
+            rawRole === 'user'
+            || localTurnPendingRef.current
+            || turnRef.current?.speaker === 'user'
+          ) {
+            // 직접 통화에서 Session A의 assistant 캡션은 내 발화의 번역문이다.
+            turnSpeaker = 'user';
           } else {
-            // New caption entry (Stage 1 원문 또는 outbound)
+            // 로컬 발화 없이 시작된 첫 안내 등 시스템 생성 발화만 AI로 표시한다.
+            turnSpeaker = 'ai';
+          }
+
+          const canReclassifyAiTurn =
+            direction === 'outbound'
+            && turnRef.current?.speaker === 'ai'
+            && turnSpeaker === 'user'
+            && localTurnPendingRef.current;
+
+          if (
+            !turnRef.current
+            || (turnRef.current.speaker !== turnSpeaker && !canReclassifyAiTurn)
+          ) {
             captionCounterRef.current += 1;
+            const id = `caption-${captionCounterRef.current}`;
+            const newTurn: ActiveCaptionTurn = {
+              id,
+              speaker: turnSpeaker,
+              hasOriginal: isOriginal,
+            };
+            turnRef.current = newTurn;
             const entry: CaptionEntry = {
-              id: `caption-${captionCounterRef.current}`,
-              speaker,
-              text,
+              id,
+              speaker: turnSpeaker,
+              text: isOriginal ? '' : text,
+              originalText: isOriginal ? text : undefined,
               language: (msg.data.language as string) ?? '',
               isFinal: false,
               timestamp: Date.now(),
-              stage,
+              stage: isOriginal ? 1 : 2,
             };
             setCaptions((prev) => [...prev, entry]);
-            streamingRef.current = { direction, stage, speaker };
+            break;
           }
+
+          if (canReclassifyAiTurn && turnRef.current) {
+            turnRef.current = { ...turnRef.current, speaker: 'user' };
+          }
+          if (isOriginal && turnRef.current) {
+            turnRef.current = { ...turnRef.current, hasOriginal: true };
+          }
+
+          const activeTurn = turnRef.current;
+          if (!activeTurn) break;
+
+          setCaptions((prev) => prev.map((entry) => {
+            if (entry.id !== activeTurn.id) return entry;
+            const nextOriginal = isOriginal
+              ? appendOriginalText(entry.originalText, text)
+              : entry.originalText;
+            const nextText = isOriginal ? entry.text : entry.text + text;
+            return {
+              ...entry,
+              speaker: activeTurn.speaker,
+              text: nextText,
+              originalText: nextOriginal,
+              language: (msg.data.language as string) || entry.language,
+              stage: nextText ? 2 : 1,
+            };
+          }));
           break;
         }
 
@@ -239,9 +257,20 @@ export function useRelayCall(
             pushEventLog({ tag: 'Session A', message: state, color: 'text-green-400' });
           }
           if (state === 'caption_done') {
-            // Session B 번역 완료 → 스트리밍 컨텍스트 리셋
-            // 다음 수신자 발화 delta가 새 캡션 엔트리로 생성됨
-            streamingRef.current = null;
+            // 원문이 늦게 도착할 수 있어 번역만 있는 턴은 다음 speech_start까지 유지한다.
+            if (inboundTurnRef.current?.hasOriginal) {
+              inboundTurnRef.current = null;
+            }
+          } else if (state === 'done') {
+            // 시스템 안내/완성된 로컬 턴은 닫고, 원문 지연 중인 로컬 턴만 잠시 유지한다.
+            if (
+              outboundTurnRef.current?.speaker === 'ai'
+              || outboundTurnRef.current?.hasOriginal
+            ) {
+              outboundTurnRef.current = null;
+            }
+            localTurnPendingRef.current = false;
+            setTranslationState('done');
           } else if (state) {
             setTranslationState(state as TranslationState);
           }
@@ -277,6 +306,7 @@ export function useRelayCall(
           const event = msg.data.event as string;
           if (stage === 'silero_vad') {
             if (event === 'speech_start') {
+              inboundTurnRef.current = null;
               markRecipientSpeaking();
             } else if (event === 'speech_end') {
               stopRecipientSpeaking();
@@ -301,7 +331,7 @@ export function useRelayCall(
           break;
       }
     },
-    [player, modeConfig.audioOutput, markRecipientSpeaking, stopRecipientSpeaking],
+    [player, modeConfig.audioOutput, communicationMode, markRecipientSpeaking, stopRecipientSpeaking],
   );
 
   // WebSocket connection
@@ -335,6 +365,8 @@ export function useRelayCall(
     onSpeechAudio: (base64Audio: string) => {
       if (!userSpeakingRef.current) {
         userSpeakingRef.current = true;
+        outboundTurnRef.current = null;
+        localTurnPendingRef.current = true;
         player.stop();
       }
       ws.sendAudioChunk(base64Audio);
@@ -373,7 +405,9 @@ export function useRelayCall(
       setIsMuted(false);
       stopRecipientSpeaking();
       captionCounterRef.current = 0;
-      streamingRef.current = null;
+      outboundTurnRef.current = null;
+      inboundTurnRef.current = null;
+      localTurnPendingRef.current = false;
       setWsUrl(relayWsUrl);
     },
     [stopRecipientSpeaking],
@@ -407,10 +441,11 @@ export function useRelayCall(
 
   const sendText = useCallback(
     (text: string) => {
+      outboundTurnRef.current = null;
+      localTurnPendingRef.current = true;
       ws.sendText(text);
       // 낙관적 로컬 캡션은 추가하지 않는다. relay가 입력 텍스트를 outbound 'user' 캡션으로
       // 에코하므로(보투보의 STT 캡션과 동일 경로), 로컬까지 넣으면 발신자 화면에 중복 표시된다.
-      streamingRef.current = null;
     },
     [ws],
   );

@@ -79,19 +79,56 @@ export async function mockSendChatMessage(
   _communicationMode?: CommunicationMode,
   _locale?: string,
 ): Promise<ChatResponse> {
-  void _communicationMode;
-  void _locale;
+  demoMessages.push({
+    id: `user-${chatStepIndex + 1}`,
+    role: 'user',
+    content: message,
+    createdAt: new Date().toISOString(),
+  });
+
+  // 실제 chat-service와 동일하게 직통 통화 모드는 전화번호만 수집하면
+  // 예약 시나리오 대화를 건너뛰고 바로 통화 준비 상태로 전환한다.
+  if (_communicationMode && _communicationMode !== 'full_agent') {
+    const compactPhone = message.trim().replace(/[\s()-]/g, '');
+    if (/^\+[1-9]\d{7,14}$/.test(compactPhone)) {
+      const response: ChatResponse = {
+        message: _locale === 'ko'
+          ? `${compactPhone}(으)로 전화를 걸 준비가 되었어요! 전화 걸기 버튼을 눌러주세요.`
+          : `Ready to call ${compactPhone}! Press the call button to start.`,
+        collected: {
+          target_name: compactPhone,
+          target_phone: compactPhone,
+          scenario_type: 'INQUIRY',
+          scenario_sub_type: 'OTHER',
+          primary_datetime: null,
+          service: null,
+          fallback_datetimes: [],
+          fallback_action: null,
+          customer_name: null,
+          party_size: null,
+          special_request: null,
+          source_language: 'ko',
+          target_language: 'en',
+        },
+        is_complete: true,
+        conversation_status: 'READY',
+      };
+
+      await delay(500);
+      demoMessages.push({
+        id: `assistant-ready-${Date.now()}`,
+        role: 'assistant',
+        content: response.message,
+        createdAt: new Date().toISOString(),
+      });
+      return response;
+    }
+  }
 
   // 현재 step의 응답 반환
   const step = Math.min(chatStepIndex, DEMO_CHAT_SEQUENCE.length - 1);
   const response = DEMO_CHAT_SEQUENCE[step];
   chatStepIndex++;
-  demoMessages.push({
-    id: `user-${chatStepIndex}`,
-    role: 'user',
-    content: message,
-    createdAt: new Date().toISOString(),
-  });
 
   // 자연스러운 타이핑 지연 (800ms ~ 1.5s)
   await delay(800 + Math.random() * 700);

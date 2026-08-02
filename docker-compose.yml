@@ -39,7 +39,13 @@ services:
       wigvo-postgres:
         condition: service_healthy
 
-  wigvo-web:
+  # 맥미니에서 도는 데이터 API. 화면은 Vercel이 그리고, DB를 만지는
+  # /api/* 요청만 Vercel이 nginx를 거쳐 여기로 넘긴다. 같은 Next 앱이지만
+  # 공개 도메인이 이쪽 화면으로 오지는 않는다.
+  #
+  # 여기에 API_PROXY_ORIGIN을 넣지 말 것 — 자기 자신에게 프록시하는
+  # 무한 루프가 된다. 그 값은 Vercel 쪽에만 있어야 한다.
+  wigvo-data-api:
     build:
       context: apps/web
       dockerfile: Dockerfile
@@ -48,7 +54,7 @@ services:
         NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY}
         NEXT_PUBLIC_RELAY_WS_URL: ${NEXT_PUBLIC_RELAY_WS_URL}
         NEXT_PUBLIC_BASE_URL: ${NEXT_PUBLIC_BASE_URL}
-    container_name: wigvo-web
+    container_name: wigvo-data-api
     restart: unless-stopped
     env_file:
       - .env

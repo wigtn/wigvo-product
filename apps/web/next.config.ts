@@ -1,7 +1,25 @@
 import type { NextConfig } from "next";
 
+// The DB lives on the Mac Mini and is not reachable from Vercel's serverless
+// runtime (no fixed egress IP to allowlist). So Vercel renders the UI and
+// proxies every DB-touching API route to the Mac Mini instance of this same
+// app, which talks to Postgres over the local docker network.
+//
+// Set API_PROXY_ORIGIN on Vercel only. The Mac Mini container must leave it
+// unset — otherwise it would proxy /api/* to itself in a loop.
+const apiProxyOrigin = process.env.API_PROXY_ORIGIN;
+
 const nextConfig: NextConfig = {
   output: "standalone",
+  async rewrites() {
+    if (!apiProxyOrigin) return [];
+    return [
+      {
+        source: "/api/:path*",
+        destination: `${apiProxyOrigin}/api/:path*`,
+      },
+    ];
+  },
 };
 
 export default nextConfig;

@@ -12,13 +12,18 @@ const apiProxyOrigin = process.env.API_PROXY_ORIGIN;
 const nextConfig: NextConfig = {
   output: "standalone",
   async rewrites() {
-    if (!apiProxyOrigin) return [];
-    return [
-      {
-        source: "/api/:path*",
-        destination: `${apiProxyOrigin}/api/:path*`,
-      },
-    ];
+    if (!apiProxyOrigin) return { beforeFiles: [] };
+    // beforeFiles, not the plain array form. The array form is `afterFiles`,
+    // which only runs when nothing on the filesystem matched — and every
+    // /api/* route does exist here, so the proxy would never fire.
+    return {
+      beforeFiles: [
+        {
+          source: "/api/:path*",
+          destination: `${apiProxyOrigin}/api/:path*`,
+        },
+      ],
+    };
   },
 };
 
